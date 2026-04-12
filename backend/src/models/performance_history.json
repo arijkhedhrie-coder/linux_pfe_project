@@ -1,0 +1,192 @@
+[
+  {
+    "session": 35,
+    "timestamp": "2026-03-23T12:13:57.743644",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 36,
+    "timestamp": "2026-03-25T13:56:34.954200",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 37,
+    "timestamp": "2026-03-25T14:41:40.630358",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 38,
+    "timestamp": "2026-03-25T14:57:54.590626",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 39,
+    "timestamp": "2026-03-25T15:17:29.784508",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 40,
+    "timestamp": "2026-03-25T16:05:12.905096",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 41,
+    "timestamp": "2026-03-26T07:58:28.479262",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 42,
+    "timestamp": "2026-03-26T08:17:01.063619",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 43,
+    "timestamp": "2026-03-26T10:16:56.197024",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.1344,
+    "score_max": 0.1471,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 44,
+    "timestamp": "2026-03-26T10:49:33.650135",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 45,
+    "timestamp": "2026-03-26T11:38:18.002049",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 46,
+    "timestamp": "2026-03-26T13:32:54.741610",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 47,
+    "timestamp": "2026-03-26T15:06:41.660961",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 48,
+    "timestamp": "2026-03-31T09:08:46.387875",
+    "nb_echantillons": 3,
+    "taux_anomalies": 0.0,
+    "score_moyen": 0.141,
+    "score_max": 0.1671,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 50,
+    "timestamp": "2026-04-11T19:59:04.426343",
+    "nb_echantillons": 3,
+    "taux_anomalies": 33.33,
+    "score_moyen": 0.2113,
+    "score_max": 0.412,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 51,
+    "timestamp": "2026-04-11T20:37:42.617144",
+    "nb_echantillons": 3,
+    "taux_anomalies": 33.33,
+    "score_moyen": 0.2113,
+    "score_max": 0.412,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 52,
+    "timestamp": "2026-04-11T21:19:24.053863",
+    "nb_echantillons": 3,
+    "taux_anomalies": 33.33,
+    "score_moyen": 0.2113,
+    "score_max": 0.412,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 53,
+    "timestamp": "2026-04-11T21:33:04.771976",
+    "nb_echantillons": 3,
+    "taux_anomalies": 33.33,
+    "score_moyen": 0.2113,
+    "score_max": 0.412,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  },
+  {
+    "session": 54,
+    "timestamp": "2026-04-12T06:36:27.288922",
+    "nb_echantillons": 3,
+    "taux_anomalies": 33.33,
+    "score_moyen": 0.2113,
+    "score_max": 0.412,
+    "nb_blacklistes": 0,
+    "silhouette": null
+  }
+]

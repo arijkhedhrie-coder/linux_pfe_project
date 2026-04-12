@@ -1,0 +1,4 @@
+Heure,Nombre_Erreurs,Velocity,Acceleration,Baseline_3h,Spike_Ratio,Is_Spike
+2026-03-10 06:00:00,21,0.0,0.0,21.0,1.0,False
+2026-03-10 23:00:00,118,97.0,97.0,69.5,1.698,False
+2026-03-11 22:00:00,118,0.0,-97.0,85.67,1.377,False

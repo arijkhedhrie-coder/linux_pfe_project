@@ -1,0 +1,736 @@
+{
+  "sessions": [
+    {
+      "date": "2026-03-12T06:23:16.968015",
+      "donnees": {
+        "ips_suspectes": [
+          "150.183.249.110",
+          "203.101.45.59",
+          "207.30.238.8",
+          "211.72.151.162",
+          "211.107.232.1"
+        ],
+        "nb_anomalies": 13,
+        "nb_alarmes": 37,
+        "alarmes": [
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 240.0,
+            "seuil": 50.0,
+            "ip": "150.183.249.110",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=240 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 138.0,
+            "seuil": 50.0,
+            "ip": "203.101.45.59",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=138 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 138.0,
+            "seuil": 50.0,
+            "ip": "207.30.238.8",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=138 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 132.0,
+            "seuil": 50.0,
+            "ip": "211.72.151.162",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=132 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 123.0,
+            "seuil": 50.0,
+            "ip": "211.107.232.1",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=123 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 105.0,
+            "seuil": 50.0,
+            "ip": "202.82.200.188",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=105 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 96.0,
+            "seuil": 50.0,
+            "ip": "83.116.207.11",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=96 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 96.0,
+            "seuil": 50.0,
+            "ip": "210.245.165.136",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=96 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 93.0,
+            "seuil": 50.0,
+            "ip": "211.167.68.59",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=93 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.349511",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "216.12.111.241",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.355043",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "163.27.187.39",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.355043",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "172.181.208.156",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.355043",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "217.187.83.139",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.355043",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "211.57.88.250",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.355043",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "211.72.2.106",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "212.65.68.82",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "211.42.188.206",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "208.62.55.75",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "206.196.21.129",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "207.243.167.114",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "81.171.220.226",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "82.68.222.195",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "63.197.98.106",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.360051",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "62.99.164.82",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.365590",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "84.102.20.2",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.365590",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "61.74.96.178",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.365590",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "82.68.222.194",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.365590",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "67.95.49.172",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.369121",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "220.94.205.45",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.369121",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "82.83.227.67",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.369121",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "218.146.61.230",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.369121",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 69.0,
+            "seuil": 50.0,
+            "ip": "206.47.209.10",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=69 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.369121",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 66.0,
+            "seuil": 50.0,
+            "ip": "82.252.162.81",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=66 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.369121",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 60.0,
+            "seuil": 50.0,
+            "ip": "60.30.224.116",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=60 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.369121",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 57.0,
+            "seuil": 50.0,
+            "ip": "217.187.83.50",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=57 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.376165",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 57.0,
+            "seuil": 50.0,
+            "ip": "221.4.102.93",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=57 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          },
+          {
+            "timestamp": "2026-03-12T06:18:50.376165",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 54.0,
+            "seuil": 50.0,
+            "ip": "210.118.170.95",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=54 > seuil=50 | Vérification manuelle requise",
+            "severite": "AVERTISSEMENT"
+          }
+        ],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-13T16:06:00.257714",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes": 1,
+        "alarmes": [
+          {
+            "timestamp": "2026-03-13T16:00:37.432307",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 27856.0,
+            "seuil": 50.0,
+            "ip": "192.168.56.103",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=27856 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          }
+        ],
+        "resultat_agents": "Le rapport a été correctement sauvegardé sur S3."
+      }
+    },
+    {
+      "date": "2026-03-16T06:07:21.411907",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes": 1,
+        "alarmes": [
+          {
+            "timestamp": "2026-03-16T05:59:11.714701",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 27856.0,
+            "seuil": 50.0,
+            "ip": "192.168.56.103",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=27856 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          }
+        ],
+        "resultat_agents": "Le rapport a été correctement sauvegardé sur S3."
+      }
+    },
+    {
+      "date": "2026-03-17T21:07:07.246662",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes": 1,
+        "alarmes": [
+          {
+            "timestamp": "2026-03-17T21:00:23.999607",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 27856.0,
+            "seuil": 50.0,
+            "ip": "192.168.56.103",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=27856 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          }
+        ],
+        "resultat_agents": "Le rapport a été correctement sauvegardé sur S3. \n\nConfirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-18T10:40:13.053851",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes": 1,
+        "alarmes": [
+          {
+            "timestamp": "2026-03-18T10:34:43.471660",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 27856.0,
+            "seuil": 50.0,
+            "ip": "192.168.56.103",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=27856 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          }
+        ],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-18T14:08:42.401555",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes": 1,
+        "alarmes": [
+          {
+            "timestamp": "2026-03-18T13:59:53.348366",
+            "type": "🔴 BRUTE-FORCE SSH IMMINENT",
+            "feature": "Nombre_Tentatives",
+            "valeur": 27856.0,
+            "seuil": 50.0,
+            "ip": "192.168.56.103",
+            "message": "🔴 BRUTE-FORCE SSH IMMINENT | Nombre_Tentatives=27856 > seuil=50 | Vérification manuelle requise",
+            "severite": "CRITIQUE"
+          }
+        ],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-19T18:04:45.970047",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes": 0,
+        "alarmes": [],
+        "resultat_agents": "Le rapport est sauvegardé sur S3 avec succès."
+      }
+    },
+    {
+      "date": "2026-03-23T10:23:57.172616",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes": 0,
+        "alarmes": [],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-23T11:27:32.986100",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes": 0,
+        "alarmes": [],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-23T11:45:23.435564",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 0,
+        "nb_alarmes": 0,
+        "alarmes": [],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-23T13:18:53.510276",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 0,
+        "nb_alarmes": 0,
+        "alarmes": [],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-26T15:26:10.599904",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 0,
+        "nb_alarmes": 0,
+        "alarmes": [],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-03-31T09:34:06.033914",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 0,
+        "nb_alarmes": 0,
+        "alarmes": [],
+        "resultat_agents": "Confirmation sauvegarde rapport S3."
+      }
+    },
+    {
+      "date": "2026-04-11T20:20:45.034085",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 0,
+        "nb_alarmes_final": 0,
+        "health_score": 99.8,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260411_195905",
+        "alarmes": [],
+        "resultat_agents": "[PARTIAL] analysis_crew: RateLimitError: litellm.RateLimitError: RateLimitError: GroqException - {\"error\":{\"message\":\"Request too large for model `llama-3.1-8b-instant` in organization `org_01kjkwphxre3t898x04syeepb1` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Requested 6300, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}}\n\n\n[REPORT_AGENT]\n"
+      }
+    },
+    {
+      "date": "2026-04-11T20:56:01.461333",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 0,
+        "nb_alarmes_final": 0,
+        "health_score": 99.8,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260411_203742",
+        "alarmes": [],
+        "resultat_agents": "[PARTIAL] analysis_crew: InternalServerError: litellm.InternalServerError: InternalServerError: GroqException - [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_ree"
+      }
+    },
+    {
+      "date": "2026-04-11T21:25:47.683248",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 0,
+        "nb_alarmes_final": 0,
+        "health_score": 99.8,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260411_211924",
+        "alarmes": [],
+        "resultat_agents": "[PARTIAL] analysis_crew: BadRequestError: litellm.BadRequestError: GroqException - {\"error\":{\"message\":\"tool call validation failed: parameters for tool declencher_alarme did not match schema: errors: [`/alarmes_json`: expected string, but got array, `/alarmes_json`: expected null, but got array]\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"\\u003cfunction=declencher_alarme\\u003e{\\\"alarmes_json\\\":[]}\\u003c/function\\u003e\\n\\n\"}}\n\n\n[REPORT_AGENT]\nLe rapport a été co"
+      }
+    },
+    {
+      "date": "2026-04-12T06:05:45.287835",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 0,
+        "nb_alarmes_final": 0,
+        "health_score": 99.8,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260411_213304",
+        "alarmes": [],
+        "resultat_agents": "[PARTIAL] analysis_crew: BadRequestError: litellm.BadRequestError: GroqException - {\"error\":{\"message\":\"tool call validation failed: parameters for tool declencher_alarme did not match schema: errors: [`/alarmes_json`: expected string, but got array, `/alarmes_json`: expected null, but got array]\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"\\u003cfunction=declencher_alarme\\u003e{\\\"alarmes_json\\\":[]}\\u003c/function\\u003e\\n\\n\"}}\n\n\n[REPORT_AGENT]\nLe rapport a été co"
+      }
+    },
+    {
+      "date": "2026-04-12T06:43:21.899913",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 0,
+        "nb_alarmes_final": 0,
+        "health_score": 99.8,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260412_063627",
+        "alarmes": [],
+        "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 20\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
+      }
+    }
+  ],
+  "anomalies_vues": [],
+  "ips_suspectes": [
+    "150.183.249.110",
+    "203.101.45.59",
+    "207.30.238.8",
+    "211.72.151.162",
+    "211.107.232.1",
+    "192.168.56.103",
+    "192.168.56.1",
+    "192.168.56.101"
+  ],
+  "threshold_history": []
+}

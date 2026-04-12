@@ -1,0 +1,10 @@
+[Sat Mar 14 07:26:39.451210 2026] [mpm_event:notice] [pid 745:tid 125414576236416] AH00489: Apache/2.4.58 (Ubuntu) configured -- resuming normal operations
+[Sat Mar 14 07:26:39.451239 2026] [core:notice] [pid 745:tid 125414576236416] AH00094: Command line: '/usr/sbin/apache2'
+[Sat Mar 14 07:45:16.766859 2026] [mpm_event:notice] [pid 745:tid 125414576236416] AH00492: caught SIGWINCH, shutting down gracefully
+[Sat Mar 14 07:45:17.063351 2026] [mpm_event:notice] [pid 10812:tid 135178639107968] AH00489: Apache/2.4.58 (Ubuntu) configured -- resuming normal operations
+[Sat Mar 14 07:45:17.081773 2026] [core:notice] [pid 10812:tid 135178639107968] AH00094: Command line: '/usr/sbin/apache2'
+[Wed Mar 18 10:09:26.873527 2026] [mpm_event:notice] [pid 784:tid 133523651020672] AH00489: Apache/2.4.58 (Ubuntu) configured -- resuming normal operations
+[Wed Mar 18 10:09:26.902868 2026] [core:notice] [pid 784:tid 133523651020672] AH00094: Command line: '/usr/sbin/apache2'
+[Wed Mar 18 10:27:32.734097 2026] [mpm_event:notice] [pid 784:tid 133523651020672] AH00492: caught SIGWINCH, shutting down gracefully
+[Wed Mar 18 10:28:09.788939 2026] [mpm_event:notice] [pid 795:tid 139054675777408] AH00489: Apache/2.4.58 (Ubuntu) configured -- resuming normal operations
+[Wed Mar 18 10:28:09.843861 2026] [core:notice] [pid 795:tid 139054675777408] AH00094: Command line: '/usr/sbin/apache2'

@@ -719,6 +719,211 @@
         "alarmes": [],
         "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 20\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
       }
+    },
+    {
+      "date": "2026-04-17T00:01:49.235357",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"default\",\n  \"confidence\": 1.0\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260417_000112",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-17T00:01:12.223285",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": "CrewAI skipped: unable to infer type for attribute \"llm_output\""
+      }
+    },
+    {
+      "date": "2026-04-17T00:09:32.994393",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"default\",\n  \"confidence\": 1.0\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260417_000853",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-17T00:08:53.806264",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": "CrewAI skipped: unable to infer type for attribute \"llm_output\""
+      }
+    },
+    {
+      "date": "2026-04-17T00:21:37.148983",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No changes needed for Pass 2 based on current stats and alarms.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260417_001519",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-17T00:15:19.958257",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": "[PARTIAL] analysis_crew: BadRequestError: litellm.BadRequestError: GroqException - {\"error\":{\"message\":\"Failed to call a function. Please adjust your prompt. See 'failed_generation' for more details.\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"\\u003cfunction=declencher_alarme\\u003e{\\\"alarmes_json\\\": \\\"[{\\\\\\\"timestamp\\\\\\\": \\\\\\\"2026-04-17T00:15:19.958257\\\\\\\", \\\\\\\"ip\\\\\\\": \\\\\\\"192.168.100.20\\\\\\\", \\\\\\\"niveau\\\\\\\": \\\\\\\"ANOMALIE\\\\\\\", \\\\\\\"score_final\\\\\\\": 0.6085, \\\\\\\"sco"
+      }
+    },
+    {
+      "date": "2026-04-17T00:56:59.070992",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No changes needed for Pass 2 based on current stats and alarms.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260417_005211",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-17T00:52:11.886364",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": "[PARTIAL] analysis_crew: BadRequestError: litellm.BadRequestError: GroqException - {\"error\":{\"message\":\"Failed to call a function. Please adjust your prompt. See 'failed_generation' for more details.\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"\\u003cfunction=declencher_alarme\\u003e{\\\"alarmes_json\\\": \\\"[{\\\\\\\"timestamp\\\\\\\": \\\\\\\"2026-04-17T00:52:11.886364\\\\\\\", \\\\\\\"ip\\\\\\\": \\\\\\\"192.168.100.20\\\\\\\", \\\\\\\"niveau\\\\\\\": \\\\\\\"ANOMALIE\\\\\\\", \\\\\\\"score_final\\\\\\\": 0.6085, \\\\\\\"sco"
+      }
+    },
+    {
+      "date": "2026-04-17T13:48:05.216010",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No changes needed for Pass 2 based on current stats and alarms.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260417_134759",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-17T13:47:59.671374",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": "[ANALYST_RULES]\nMain threat: concentrated attacker with very high confidence (health=99.4%, status=HIGH).\nLikely automated; evidence: low IP diversity (4), low entropy (0.632), high request volume (495.0), and repeated failures tied to N/A.\nNo; Pass 2 did not run because the orchestrator kept the default thresholds and no override was justified.\nTop next-2h risks: sustained credential abuse from the same source, and service or alert-noise degradation from 1 ongoing anomaly signal(s) with night_r"
+      }
     }
   ],
   "anomalies_vues": [],
@@ -730,7 +935,8 @@
     "211.107.232.1",
     "192.168.56.103",
     "192.168.56.1",
-    "192.168.56.101"
+    "192.168.56.101",
+    "192.168.100.20"
   ],
   "threshold_history": []
 }

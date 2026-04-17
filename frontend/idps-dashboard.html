@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>IDPS Hybrid Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0e0a;overflow:hidden}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:#0a0e0a}
+::-webkit-scrollbar-thumb{background:#1a3a1a;border-radius:2px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes flashIn{0%{opacity:0.2}100%{opacity:1}}
+@keyframes slideIn{from{transform:translateY(-6px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes flowDown{0%{background-position:0 0}100%{background-position:0 20px}}
+@keyframes critFlash{0%{border-color:#e05252;box-shadow:inset 0 0 40px #e0525218}40%{border-color:#e05252;box-shadow:inset 0 0 60px #e0525230}100%{border-color:transparent;box-shadow:none}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script>
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ─── MOCK DATA ────────────────────────────────────────────────────────────────
+function rand(min,max,d=1){return parseFloat((Math.random()*(max-min)+min).toFixed(d))}
+function jitter(base,pct=0.12){return parseFloat((base*(1+(Math.random()-0.5)*pct*2)).toFixed(1))}
+
+const ATTACK_TYPES=[
+  {type:'BRUTE_FORCE_SSH',engine:'SSH',insight:'Repeated login failures from single IP — credential stuffing pattern.'},
+  {type:'WEB_ENUMERATION',engine:'WEB',insight:'Suspicious path scanning — likely automated vulnerability scanner.'},
+  {type:'FTP_EXFIL',engine:'FTP',insight:'Abnormal download rate — possible data exfiltration in progress.'},
+  {type:'SESSION_HIJACK',engine:'SESSION',insight:'Anomalous session token reuse across multiple IPs — session compromise.'},
+  {type:'KERNEL_PANIC',engine:'KERNEL',insight:'Kernel error spike — system instability may precede crash.'},
+  {type:'PORT_SCAN',engine:'SSH',insight:'Sequential port probing — reconnaissance phase detected.'},
+  {type:'BOTNET_WARMUP',engine:'PREDICTION',insight:'Rising unique IPs, low per-IP attempts — distributed attack imminent.'},
+  {type:'SPRAY_PHASE',engine:'PREDICTION',insight:'Username diversity spiking — password spray attack incoming.'},
+];
+const IPS=['192.168.1.55','10.0.0.42','172.16.0.88','192.168.2.11','10.10.5.200'];
+const SEVS=['CRITICAL','HIGH','HIGH','MED','MED','LOW','LOW','INFO'];
+const SEV_COLOR={CRITICAL:'#e05252',HIGH:'#f5a623',MED:'#3b9ef8',LOW:'#4a9a6a',INFO:'#4a6a8a'};
+const SEV_BG={CRITICAL:'#2a1010',HIGH:'#2a1e0a',MED:'#0a1a2a',LOW:'#0a1e0a',INFO:'#0a0e14'};
+const ENGINE_COLOR={SSH:'#3b9ef8',WEB:'#c87ad4',FTP:'#3ddc84',SESSION:'#f5a623',KERNEL:'#e05a8a',PREDICTION:'#e87a3a'};
+const ACTIONS={CRITICAL:'BLOCK_NOW',HIGH:'ESCALATE',MED:'WATCHLIST',LOW:'MONITOR',INFO:'LOG_ONLY'};
+
+function genKPIs(){return{cpu_load:rand(55,94),ssh_failures:rand(2,18,0),active_connections:rand(80,180,0),error_rate:rand(0,8),blocked_ips:rand(1,7,0),health_score:rand(62,97)}}
+
+function genAlarms(n=8){
+  return Array.from({length:n},(_,i)=>{
+    const atk=ATTACK_TYPES[Math.floor(Math.random()*ATTACK_TYPES.length)];
+    const sev=SEVS[Math.floor(Math.random()*8)];
+    const score=rand(22,95);
+    const ts=new Date(Date.now()-i*45000).toTimeString().slice(0,8);
+    return{id:`a${Date.now()}${i}`,timestamp:ts,type:atk.type,source_ip:IPS[Math.floor(Math.random()*IPS.length)],severity:sev,engine:atk.engine,score,message:`Score ${score}`,human_insight:atk.insight,action:ACTIONS[sev]};
+  }).sort((a,b)=>({CRITICAL:0,HIGH:1,MED:2,LOW:3,INFO:4}[a.severity]-{CRITICAL:0,HIGH:1,MED:2,LOW:3,INFO:4}[b.severity]));
+}
+
+function genScores(){
+  return['SSH','WEB','FTP','SESSION','KERNEL','PREDICTION'].map(engine=>{
+    const p1=rand(10,90),p2=jitter(p1,0.3),score=Math.max(p1,p2);
+    return{engine,score,pass1:p1,pass2:p2,alarms:Math.floor(rand(0,12,0)),status:score>60?'BLOCK':score>35?'WATCH':'CLEAR'};
+  });
+}
+
+function genTrend(n=48){
+  let ssh=30,web=20,ftp=10,kernel=5,pred=15,health=85;
+  return Array.from({length:n},(_,i)=>{
+    ssh=Math.max(0,Math.min(100,ssh+rand(-8,8)));
+    web=Math.max(0,Math.min(100,web+rand(-6,7)));
+    ftp=Math.max(0,Math.min(100,ftp+rand(-4,6)));
+    kernel=Math.max(0,Math.min(100,kernel+rand(-3,5)));
+    pred=Math.max(0,Math.min(100,pred+rand(-5,7)));
+    health=Math.max(40,Math.min(100,health-(ssh+web)/40+rand(-3,3)));
+    const min=(n-i)*30,t=new Date(Date.now()-min*60000);
+    return{time:`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`,ssh,web,ftp,kernel,prediction:pred,health};
+  });
+}
+
+const LOG_TEMPLATES=[
+  '[SSH] Auth failure from {ip} — attempt {n}/min',
+  '[WEB] 404 spray: {n} paths from {ip}',
+  '[BRIDGE] Pass 1 complete — {n} alarms raised',
+  '[AGENT] Orchestrateur: threshold adjusted ssh_high → {n}',
+  '[FTP] Transfer anomaly: {n} RETR events from {ip}',
+  '[KERNEL] Error burst: {n} events/60s',
+  '[MEMORY] Session saved — {n} IPs watchlisted',
+  '[S3] Report uploaded → processed/report_{n}.json',
+  '[DETECT] Chain confirmed: SCAN→BRUTE on {ip}',
+  '[CREW] Rapporteur: executive summary generated',
+  '[PREDICT] BOTNET_WARMUP flag raised — {n} unique IPs',
+  '[SESSION] Anomaly score {n} from {ip}',
+];
+
+const TICK=12000;
+
+// ─── GLOBAL ALERT SYSTEM ──────────────────────────────────────────────────────
+const ALERT_THRESHOLDS={cpu_load:85,ssh_failures:12,blocked_ips:5,error_rate:6};
+
+function useAlertSystem(kpis){
+  const[toasts,setToasts]=useState([]);
+  const[criticalFlash,setCriticalFlash]=useState(false);
+  const prevRef=useRef({});
+  useEffect(()=>{
+    if(!kpis)return;
+    const newToasts=[];
+    Object.entries(ALERT_THRESHOLDS).forEach(([key,thresh])=>{
+      const val=kpis[key];
+      const wasOver=(prevRef.current[key]||0)>thresh;
+      if(val>thresh&&!wasOver){
+        newToasts.push({id:`${key}-${Date.now()}`,key,val:val.toFixed?val.toFixed(1):val,thresh,ts:new Date().toTimeString().slice(0,8)});
+      }
+    });
+    if(newToasts.length>0){
+      setCriticalFlash(true);
+      setTimeout(()=>setCriticalFlash(false),2500);
+      setToasts(prev=>[...newToasts,...prev].slice(0,5));
+    }
+    prevRef.current={...kpis};
+  },[kpis]);
+  const dismiss=useCallback(id=>setToasts(prev=>prev.filter(t=>t.id!==id)),[]);
+  return{toasts,criticalFlash,dismiss};
+}
+
+function ToastStack({toasts,dismiss}){
+  if(!toasts.length)return null;
+  const labels={cpu_load:'CPU Load',ssh_failures:'SSH Failures/min',blocked_ips:'Blocked IPs',error_rate:'Error Rate'};
+  return React.createElement('div',{style:{position:'fixed',top:50,right:16,zIndex:999,display:'flex',flexDirection:'column',gap:6}},
+    toasts.map(t=>React.createElement('div',{key:t.id,style:{background:'#1a0a0a',border:'1px solid #e05252',borderRadius:6,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,minWidth:240,animation:'slideIn 0.3s ease',boxShadow:'0 0 20px #e0525230'}},
+      React.createElement('div',{style:{width:8,height:8,borderRadius:'50%',background:'#e05252',animation:'pulse 0.8s infinite',flexShrink:0}}),
+      React.createElement('div',{style:{flex:1}},
+        React.createElement('div',{style:{fontSize:10,fontWeight:600,color:'#e05252',letterSpacing:'0.06em'}},'THRESHOLD EXCEEDED'),
+        React.createElement('div',{style:{fontSize:9,color:'#c87a7a',marginTop:2}},`${labels[t.key]||t.key}: ${t.val} > ${t.thresh}`)
+      ),
+      React.createElement('button',{onClick:()=>dismiss(t.id),style:{background:'none',border:'none',color:'#5a3a3a',cursor:'pointer',fontSize:12,padding:0}},'✕')
+    ))
+  );
+}
+
+// ─── CRITICAL FLASH OVERLAY ───────────────────────────────────────────────────
+function CriticalFlashOverlay({active}){
+  if(!active)return null;
+  return React.createElement('div',{style:{position:'fixed',inset:0,pointerEvents:'none',zIndex:998,border:'2px solid #e05252',animation:'critFlash 2.5s ease',borderRadius:0}});
+}
+
+// ─── SESSION REPLAY MODAL ─────────────────────────────────────────────────────
+const REPLAY_SESSIONS=[
+  {id:'r1',date:'2026-03-12T06:23:16',label:'Critical SSH Attack — Mar 12',threat:'CRITICAL',
+   steps:[
+     {t:0,event:'PIPELINE_START',msg:'4821 rows loaded · 3 servers · SSH=3214 WEB=891 FTP=412'},
+     {t:900,event:'METRICS_COMPUTED',msg:'health=41% · alert=CRITICAL · entropy=2.1bits · spike=True'},
+     {t:1800,event:'PASS1_COMPLETE',msg:'37 alarms · SSH:37 CRITIQUE · top IP: 150.183.249.110 (240 attempts)'},
+     {t:2700,event:'DYNAMIC_CONFIG_ISSUED',msg:'ssh_high→28 · escalate=[150.183.249.110] · confidence=0.94'},
+     {t:3600,event:'PASS2_COMPLETE',msg:'37 alarms final · session engine: 2 new · 150.183.249.110 BLOCKED'},
+     {t:4500,event:'AGENTS_COMPLETE',msg:'BLOCK_AWS_SG executed via Boto3 · Fail2Ban triggered'},
+     {t:5200,event:'SESSION_SUMMARY',msg:'elapsed=48.3s · report→S3 · memory updated 8 sessions'},
+   ]},
+  {id:'r2',date:'2026-04-12T06:36:27',label:'Elevated Multi-Vector — Apr 12',threat:'ELEVATED',
+   steps:[
+     {t:0,event:'PIPELINE_START',msg:'3204 rows · 3 servers · velocity_spike detected'},
+     {t:900,event:'METRICS_COMPUTED',msg:'health=62.4% · alert=ELEVATED · pattern=concentrated_attacker'},
+     {t:1800,event:'PASS1_COMPLETE',msg:'13 alarms · SSH:5 PREDICTION:8 · BOTNET_WARMUP flag'},
+     {t:2700,event:'DYNAMIC_CONFIG_ISSUED',msg:'ssh_high→28 · rerun=["session"] · confidence=0.87'},
+     {t:3600,event:'PASS2_COMPLETE',msg:'13 alarms (+0) · session 2 new · merge: pass1 dominates'},
+     {t:4500,event:'AGENTS_COMPLETE',msg:'FTP SURVEILLANCE_NORMALE · SSH BLOCK issued'},
+     {t:5200,event:'SESSION_SUMMARY',msg:'elapsed=52.1s · memory: 8 sessions retained'},
+   ]},
+  {id:'r3',date:'2026-03-31T09:34:06',label:'Clean Session — Mar 31',threat:'NORMAL',
+   steps:[
+     {t:0,event:'PIPELINE_START',msg:'1203 rows · 3 servers · no anomalies expected'},
+     {t:900,event:'METRICS_COMPUTED',msg:'health=99.1% · alert=NOMINAL · entropy=0.8bits'},
+     {t:1800,event:'PASS1_COMPLETE',msg:'0 alarms · all engines CLEAR'},
+     {t:2700,event:'DYNAMIC_CONFIG_DEFAULT',msg:'No overrides needed · Pass 2 skipped · confidence=0.95'},
+     {t:3600,event:'AGENTS_COMPLETE',msg:'SURVEILLANCE_NORMALE confirmed across all agents'},
+     {t:4500,event:'SESSION_SUMMARY',msg:'elapsed=31.2s · clean session · memory updated'},
+   ]},
+];
+
+function SessionReplayModal({onClose}){
+  const[sel,setSel]=useState(null);
+  const[rlog,setRlog]=useState([]);
+  const[playing,setPlaying]=useState(false);
+  const timers=useRef([]);
+  const EC={PIPELINE_START:'#3b9ef8',METRICS_COMPUTED:'#f5a623',PASS1_COMPLETE:'#e05252',DYNAMIC_CONFIG_ISSUED:'#f5a623',DYNAMIC_CONFIG_DEFAULT:'#3a5a3a',PASS2_COMPLETE:'#e87a3a',AGENTS_COMPLETE:'#3ddc84',SESSION_SUMMARY:'#5DCAA5'};
+  const TC={CRITICAL:'#e05252',ELEVATED:'#f5a623',NORMAL:'#3ddc84'};
+
+  const startReplay=sess=>{
+    timers.current.forEach(clearTimeout);
+    setSel(sess);setRlog([]);setPlaying(true);
+    timers.current=sess.steps.map(step=>setTimeout(()=>{
+      setRlog(prev=>[...prev,step]);
+      if(step.t===Math.max(...sess.steps.map(s=>s.t)))setPlaying(false);
+    },step.t));
+  };
+  useEffect(()=>()=>timers.current.forEach(clearTimeout),[]);
+
+  return React.createElement('div',{onClick:e=>{if(e.target===e.currentTarget)onClose()},style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.88)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}},
+    React.createElement('div',{style:{width:700,maxHeight:'80vh',background:'#0d120d',border:'1px solid #2a4a2a',borderRadius:10,display:'flex',flexDirection:'column',overflow:'hidden'}},
+      React.createElement('div',{style:{padding:'14px 18px',borderBottom:'1px solid #1a2a1a',display:'flex',justifyContent:'space-between',alignItems:'center',background:'#0a100a',flexShrink:0}},
+        React.createElement('div',null,
+          React.createElement('div',{style:{fontSize:12,fontWeight:600,color:'#e8ffe8',letterSpacing:'0.06em'}},'SESSION REPLAY'),
+          React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginTop:2}},'Reconstruct past pipeline runs from long_term_memory.json')
+        ),
+        React.createElement('button',{onClick:onClose,style:{background:'none',border:'1px solid #2a3a2a',color:'#4a6a4a',padding:'4px 12px',borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace'}},'✕ CLOSE')
+      ),
+      React.createElement('div',{style:{display:'flex',flex:1,overflow:'hidden'}},
+        React.createElement('div',{style:{width:210,borderRight:'1px solid #1a2a1a',padding:'10px',overflowY:'auto',flexShrink:0}},
+          React.createElement('div',{style:{fontSize:8,color:'#2a4a2a',letterSpacing:'0.1em',marginBottom:8}},'STORED SESSIONS'),
+          REPLAY_SESSIONS.map(s=>React.createElement('button',{key:s.id,onClick:()=>startReplay(s),style:{width:'100%',textAlign:'left',padding:'9px 10px',marginBottom:5,borderRadius:5,border:`1px solid ${sel?.id===s.id?(TC[s.threat]+'70'):'#131e13'}`,background:sel?.id===s.id?'#0d1a0d':'#080f08',cursor:'pointer',display:'block'}},
+            React.createElement('div',{style:{fontSize:9,fontWeight:600,color:sel?.id===s.id?TC[s.threat]:'#6a9a6a',marginBottom:3}},s.label),
+            React.createElement('div',{style:{fontSize:8,color:'#3a5a3a',marginBottom:4}},new Date(s.date).toLocaleString()),
+            React.createElement('span',{style:{fontSize:8,padding:'1px 7px',borderRadius:3,background:'#0d160d',color:TC[s.threat]}},s.threat)
+          ))
+        ),
+        React.createElement('div',{style:{flex:1,padding:'14px',overflowY:'auto',display:'flex',flexDirection:'column',gap:7}},
+          !sel&&React.createElement('div',{style:{color:'#2a4a2a',fontSize:10,textAlign:'center',marginTop:90,letterSpacing:'0.04em'}},'← Select a session to replay'),
+          sel&&React.createElement(React.Fragment,null,
+            React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+              React.createElement('span',{style:{fontSize:10,color:'#4a7a4a',fontWeight:600}},sel.label),
+              playing&&React.createElement('span',{style:{fontSize:8,color:'#3ddc84',animation:'pulse 1s infinite',letterSpacing:'0.08em'}},'● REPLAYING...')
+            ),
+            rlog.map((step,i)=>React.createElement('div',{key:i,style:{display:'flex',gap:10,alignItems:'flex-start',padding:'9px 12px',borderRadius:5,background:'#080f08',border:`1px solid ${(EC[step.event]||'#4a7a4a')+'35'}`,animation:'slideIn 0.35s ease'}},
+              React.createElement('div',{style:{width:7,height:7,borderRadius:'50%',background:EC[step.event]||'#4a7a4a',marginTop:3,flexShrink:0}}),
+              React.createElement('div',null,
+                React.createElement('div',{style:{fontSize:9,fontWeight:600,color:EC[step.event]||'#4a7a4a',marginBottom:3,letterSpacing:'0.06em'}},step.event),
+                React.createElement('div',{style:{fontSize:9,color:'#5a8a6a',lineHeight:1.5}},step.msg)
+              )
+            )),
+            rlog.length>0&&rlog.length===sel.steps.length&&React.createElement('div',{style:{padding:'10px',borderRadius:5,background:'#0a1e0a',border:'1px solid #1a4a1a',textAlign:'center',fontSize:9,color:'#3ddc84',letterSpacing:'0.08em'}},'✓ REPLAY COMPLETE — '+rlog.length+' events reconstructed')
+          )
+        )
+      )
+    )
+  );
+}
+
+// ─── BACKEND STATUS INDICATOR ─────────────────────────────────────────────────
+const BACKEND_URL='http://localhost:5000';
+function useBackendStatus(){
+  const[status,setStatus]=useState('mock');
+  const[lastPing,setLastPing]=useState(null);
+  useEffect(()=>{
+    const check=async()=>{
+      try{
+        const r=await fetch(`${BACKEND_URL}/api/health`,{signal:AbortSignal.timeout(1200)});
+        setStatus(r.ok?'connected':'error');
+      }catch{setStatus('mock');}
+      setLastPing(new Date().toTimeString().slice(0,8));
+    };
+    check();
+    const id=setInterval(check,30000);
+    return()=>clearInterval(id);
+  },[]);
+  return{status,lastPing};
+}
+
+
+
+
+// ─── HOOKS ────────────────────────────────────────────────────────────────────
+function useTick(){const[t,s]=useState(0);useEffect(()=>{const id=setInterval(()=>s(x=>x+1),TICK);return()=>clearInterval(id)},[]);return t}
+function useClock(){const[t,s]=useState(new Date());useEffect(()=>{const id=setInterval(()=>s(new Date()),1000);return()=>clearInterval(id)},[]);return t}
+
+// Generic API fetch with mock fallback
+async function apiFetch(path,mockFn){
+  try{
+    const r=await fetch(BACKEND_URL+path,{signal:AbortSignal.timeout(2000)});
+    if(!r.ok)throw new Error('bad status');
+    return await r.json();
+  }catch{return mockFn();}
+}
+
+function useKPIs(){
+  const tick=useTick();
+  const[data,setData]=useState(genKPIs);
+  const[flash,setFlash]=useState(false);
+  useEffect(()=>{
+    apiFetch('/api/kpis',genKPIs).then(d=>{setData(d);setFlash(true);setTimeout(()=>setFlash(false),800);});
+  },[tick]);
+  return{data,flash};
+}
+function useAlarms(){
+  const tick=useTick();
+  const[d,s]=useState(()=>genAlarms(8));
+  useEffect(()=>{apiFetch('/api/alarms',()=>genAlarms(8)).then(res=>s(res.length?res:genAlarms(8)));},[tick]);
+  return d;
+}
+function useScores(){
+  const tick=useTick();
+  const[d,s]=useState(genScores);
+  useEffect(()=>{apiFetch('/api/engine-scores',genScores).then(res=>s(res.length?res:genScores()));},[tick]);
+  return d;
+}
+function useTrend(){
+  const tick=useTick();
+  const[h,setH]=useState(()=>genTrend(48));
+  useEffect(()=>{setH(prev=>{const last=prev[prev.length-1];return[...prev.slice(1),{time:new Date().toTimeString().slice(0,5),ssh:Math.max(0,Math.min(100,last.ssh+(Math.random()-.45)*12)),web:Math.max(0,Math.min(100,last.web+(Math.random()-.45)*10)),ftp:Math.max(0,Math.min(100,last.ftp+(Math.random()-.45)*7)),kernel:Math.max(0,Math.min(100,last.kernel+(Math.random()-.45)*5)),prediction:Math.max(0,Math.min(100,last.prediction+(Math.random()-.45)*8)),health:Math.max(40,Math.min(100,last.health+(Math.random()-.5)*5))}]});},[tick]);
+  return h;
+}
+function useLogs(){
+  const tick=useTick();
+  const[logs,setLogs]=useState([]);
+  useEffect(()=>{
+    apiFetch('/api/logs/stream',null).then(res=>{
+      if(res&&res.lines&&res.lines.length){setLogs(res.lines);}
+      else{
+        const ip=IPS[Math.floor(Math.random()*IPS.length)],n=Math.floor(Math.random()*200);
+        const tmpl=LOG_TEMPLATES[Math.floor(Math.random()*LOG_TEMPLATES.length)];
+        const line=`${new Date().toTimeString().slice(0,8)} `+tmpl.replace('{ip}',ip).replace('{n}',String(n));
+        setLogs(prev=>[...prev.slice(-60),line]);
+      }
+    });
+  },[tick]);
+  return logs;
+}
+
+// ─── COMPONENTS ──────────────────────────────────────────────────────────────
+function Panel({children,style={}}){
+  return React.createElement('div',{style:{background:'#0f160f',border:'1px solid #1a2a1a',borderRadius:8,padding:'14px 16px',...style}},children);
+}
+function STitle({children,accent='#3ddc84'}){
+  return React.createElement('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:12}},
+    React.createElement('div',{style:{width:2,height:12,background:accent,borderRadius:1}}),
+    React.createElement('span',{style:{fontSize:9,fontWeight:600,color:'#4a7a4a',letterSpacing:'0.12em',textTransform:'uppercase'}},children)
+  );
+}
+
+function Gauge({value,max,color,label,sublabel,flash}){
+  const r=44,cx=60,cy=58;
+  const startA=-215,endA=35,total=endA-startA;
+  const pct=Math.min(value/max,1);
+  const toRad=d=>d*Math.PI/180;
+  const arc=(s,e)=>{const sr=toRad(s),er=toRad(e),x1=cx+r*Math.cos(sr),y1=cy+r*Math.sin(sr),x2=cx+r*Math.cos(er),y2=cy+r*Math.sin(er),lg=e-s>180?1:0;return`M${x1},${y1} A${r},${r} 0 ${lg},1 ${x2},${y2}`};
+  const filledEnd=startA+pct*total,isHigh=pct>0.8;
+  const disp=typeof value==='number'&&!Number.isInteger(value)?value.toFixed(1):Math.round(value);
+  return React.createElement('div',{style:{textAlign:'center',animation:flash?'flashIn 0.6s ease':undefined}},
+    React.createElement('svg',{width:120,height:90,viewBox:'0 0 120 90'},
+      React.createElement('path',{d:arc(startA,endA),fill:'none',stroke:'#1a2a1a',strokeWidth:5,strokeLinecap:'round'}),
+      React.createElement('path',{d:arc(startA,filledEnd),fill:'none',stroke:isHigh?'#e05252':color,strokeWidth:5,strokeLinecap:'round'}),
+      React.createElement('text',{x:cx,y:cy+4,textAnchor:'middle',fill:isHigh?'#e05252':'#e8ffe8',fontSize:18,fontWeight:600,fontFamily:'monospace'},disp),
+      isHigh&&React.createElement('circle',{cx:cx+18,cy:cy-16,r:4,fill:'#e05252',opacity:0.8},
+        React.createElement('animate',{attributeName:'opacity',values:'0.8;0.2;0.8',dur:'1s',repeatCount:'indefinite'})
+      )
+    ),
+    React.createElement('div',{style:{fontSize:10,fontWeight:500,color:'#c8e8c8',letterSpacing:'0.04em',marginTop:-4}},label),
+    sublabel&&React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginTop:2}},sublabel)
+  );
+}
+
+function TrendChart({data}){
+  if(!data.length)return null;
+  const W=580,H=120;
+  const keys=['ssh','web','ftp','kernel','prediction'];
+  const colors={ssh:'#3b9ef8',web:'#c87ad4',ftp:'#3ddc84',kernel:'#e05a8a',prediction:'#f5a623'};
+  const sx=i=>(i/(data.length-1))*W,sy=v=>H-(v/100)*H;
+  const toP=k=>data.map((d,i)=>`${i===0?'M':'L'}${sx(i)},${sy(d[k])}`).join(' ');
+  const toA=k=>toP(k)+` L${sx(data.length-1)},${H} L0,${H} Z`;
+  const step=Math.floor(data.length/6);
+  return React.createElement('svg',{width:'100%',viewBox:`0 0 ${W} ${H+24}`,style:{display:'block'}},
+    [0,25,50,75,100].map(v=>React.createElement('g',{key:v},
+      React.createElement('line',{x1:0,x2:W,y1:sy(v),y2:sy(v),stroke:'#151f15',strokeWidth:1}),
+      React.createElement('text',{x:2,y:sy(v)-2,fill:'#2a4a2a',fontSize:8,fontFamily:'monospace'},v)
+    )),
+    keys.map(k=>React.createElement('g',{key:k},
+      React.createElement('path',{d:toA(k),fill:colors[k],fillOpacity:0.07}),
+      React.createElement('path',{d:toP(k),fill:'none',stroke:colors[k],strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'})
+    )),
+    data.map((d,i)=>i%step===0&&React.createElement('text',{key:i,x:sx(i),y:H+16,fill:'#3a5a3a',fontSize:8,fontFamily:'monospace',textAnchor:'middle'},d.time)),
+    keys.map(k=>React.createElement('circle',{key:`dot-${k}`,cx:sx(data.length-1),cy:sy(data[data.length-1][k]),r:3,fill:colors[k]},
+      React.createElement('animate',{attributeName:'opacity',values:'1;0.3;1',dur:'1.5s',repeatCount:'indefinite'})
+    ))
+  );
+}
+
+function EngineBars({scores}){
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+    scores.map(s=>React.createElement('div',{key:s.engine,style:{display:'flex',alignItems:'center',gap:8}},
+      React.createElement('div',{style:{width:72,fontSize:9,color:ENGINE_COLOR[s.engine],fontWeight:600,letterSpacing:'0.06em'}},s.engine),
+      React.createElement('div',{style:{flex:1,height:6,background:'#151f15',borderRadius:3,overflow:'hidden'}},
+        React.createElement('div',{style:{height:'100%',borderRadius:3,width:`${s.score}%`,background:s.score>60?'#e05252':s.score>35?'#f5a623':'#3ddc84',transition:'width 0.8s ease'}})
+      ),
+      React.createElement('div',{style:{width:34,fontSize:9,color:'#6a9a6a',textAlign:'right'}},s.score.toFixed(1)),
+      React.createElement('div',{style:{width:42,fontSize:8,textAlign:'center',padding:'1px 4px',borderRadius:3,background:s.status==='BLOCK'?'#2a1010':s.status==='WATCH'?'#2a1e0a':'#0a1e0a',color:s.status==='BLOCK'?'#e05252':s.status==='WATCH'?'#f5a623':'#3ddc84',letterSpacing:'0.06em'}},s.status)
+    ))
+  );
+}
+
+function CorrelationMap(){
+  const nodes=[
+    {id:'server',label:'SERVER',x:160,y:130,r:30,color:'#0C447C',tc:'#85B7EB',type:'server'},
+    {id:'ssh',label:'SSH',x:270,y:55,r:22,color:'#085041',tc:'#5DCAA5',type:'engine'},
+    {id:'web',label:'WEB',x:278,y:135,r:22,color:'#3C3489',tc:'#AFA9EC',type:'engine'},
+    {id:'ftp',label:'FTP',x:270,y:215,r:22,color:'#854F0B',tc:'#EF9F27',type:'engine'},
+    {id:'kernel',label:'KERN',x:160,y:230,r:22,color:'#712B13',tc:'#F0997B',type:'engine'},
+    {id:'red1',label:'ATTKR',x:50,y:70,r:20,color:'#791F1F',tc:'#F09595',type:'attacker'},
+    {id:'red2',label:'ATTKR',x:50,y:195,r:20,color:'#791F1F',tc:'#F09595',type:'attacker'},
+  ];
+  const links=[
+    {f:'server',t:'ssh',active:true,w:2.5},{f:'server',t:'web',active:true,w:2},
+    {f:'server',t:'ftp',active:false,w:1},{f:'server',t:'kernel',active:true,w:2},
+    {f:'red1',t:'server',active:true,w:3},{f:'red2',t:'server',active:false,w:1},
+  ];
+  const nm=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  return React.createElement('svg',{width:'100%',viewBox:'0 0 320 270',style:{display:'block'}},
+    links.map((l,i)=>{const a=nm[l.f],b=nm[l.t];return React.createElement('line',{key:i,x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:l.active?'#2a5a3a':'#1a2a1a',strokeWidth:l.w,strokeDasharray:l.active?'5 3':'2 4',opacity:l.active?0.9:0.4})}),
+    nodes.map(n=>React.createElement('g',{key:n.id},
+      React.createElement('circle',{cx:n.x,cy:n.y,r:n.r,fill:n.color,stroke:n.tc,strokeWidth:1,strokeOpacity:0.5}),
+      n.type==='attacker'&&React.createElement('circle',{cx:n.x,cy:n.y,r:n.r+5,fill:'none',stroke:'#e05252',strokeWidth:0.5,strokeDasharray:'3 3',opacity:0.5},
+        React.createElement('animateTransform',{attributeName:'transform',type:'rotate',from:`0 ${n.x} ${n.y}`,to:`360 ${n.x} ${n.y}`,dur:'8s',repeatCount:'indefinite'})
+      ),
+      React.createElement('text',{x:n.x,y:n.y+4,textAnchor:'middle',fill:n.tc,fontSize:8,fontWeight:600,fontFamily:'monospace'},n.label)
+    ))
+  );
+}
+
+function AlarmFeed({alarms}){
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+    alarms.slice(0,7).map((a,i)=>React.createElement('div',{key:a.id,style:{display:'grid',gridTemplateColumns:'52px 1fr auto',gap:8,alignItems:'start',padding:'7px 10px',background:i===0?SEV_BG[a.severity]:'#0a130a',borderRadius:5,border:`1px solid ${i===0?SEV_COLOR[a.severity]+'30':'#131e13'}`,animation:i===0?'slideIn 0.4s ease':undefined}},
+      React.createElement('div',null,
+        React.createElement('div',{style:{fontSize:8,padding:'1px 5px',borderRadius:3,textAlign:'center',fontWeight:600,background:SEV_BG[a.severity],color:SEV_COLOR[a.severity],letterSpacing:'0.08em'}},a.severity),
+        React.createElement('div',{style:{fontSize:8,color:'#3a5a3a',marginTop:2,textAlign:'center'}},a.timestamp)
+      ),
+      React.createElement('div',null,
+        React.createElement('div',{style:{fontSize:10,fontWeight:600,color:'#c8e8c8',marginBottom:2}},a.type.replace(/_/g,' ')),
+        React.createElement('div',{style:{fontSize:9,color:'#5a8a5a',lineHeight:1.4}},a.human_insight),
+        React.createElement('div',{style:{fontSize:8,color:'#4a6a4a',marginTop:2}},
+          React.createElement('span',{style:{color:'#3b9ef8'}},a.source_ip),' · ',a.engine
+        )
+      ),
+      React.createElement('div',{style:{textAlign:'right'}},
+        React.createElement('div',{style:{fontSize:8,padding:'2px 6px',borderRadius:3,background:'#1a2a1a',color:'#4a9a6a',letterSpacing:'0.05em',whiteSpace:'nowrap'}},a.action),
+        React.createElement('div',{style:{fontSize:11,color:SEV_COLOR[a.severity],fontWeight:600,marginTop:4}},a.score.toFixed(0))
+      )
+    ))
+  );
+}
+
+function LogTerminal({logs}){
+  const colorLine=l=>{
+    if(l.includes('[SSH]')||l.includes('CRITICAL'))return'#e05252';
+    if(l.includes('BRIDGE')||l.includes('AGENT')||l.includes('CREW'))return'#f5a623';
+    if(l.includes('MEMORY')||l.includes('S3'))return'#3ddc84';
+    if(l.includes('PREDICT'))return'#e87a3a';
+    if(l.includes('[WEB]')||l.includes('[KERNEL]'))return'#c87ad4';
+    return'#4a7a4a';
+  };
+  const visible=logs.slice(-16);
+  return React.createElement('div',{style:{fontFamily:'monospace',fontSize:9,lineHeight:1.8,maxHeight:150,overflowY:'auto',color:'#3a6a3a'}},
+    visible.map((line,i)=>React.createElement('div',{key:i,style:{color:i===visible.length-1?colorLine(line):'#3a5a3a',animation:i===visible.length-1?'slideIn 0.3s ease':undefined}},
+      React.createElement('span',{style:{color:'#2a4a2a',marginRight:4}},'›'),line
+    ))
+  );
+}
+
+function HealthRing({score}){
+  const r=36,cx=45,cy=45,circ=2*Math.PI*r,dash=(score/100)*circ;
+  const color=score>80?'#3ddc84':score>60?'#f5a623':'#e05252';
+  return React.createElement('div',{style:{position:'relative',width:90,height:90,flexShrink:0}},
+    React.createElement('svg',{width:90,height:90,viewBox:'0 0 90 90'},
+      React.createElement('circle',{cx,cy,r,fill:'none',stroke:'#1a2a1a',strokeWidth:6}),
+      React.createElement('circle',{cx,cy,r,fill:'none',stroke:color,strokeWidth:6,strokeDasharray:`${dash} ${circ-dash}`,strokeLinecap:'round',transform:`rotate(-90 ${cx} ${cy})`,style:{transition:'stroke-dasharray 1s ease'}}),
+      React.createElement('text',{x:cx,y:cy+2,textAnchor:'middle',fill:color,fontSize:16,fontWeight:600,fontFamily:'monospace'},Math.round(score)),
+      React.createElement('text',{x:cx,y:cy+14,textAnchor:'middle',fill:'#3a5a3a',fontSize:7,fontFamily:'monospace'},'HEALTH')
+    )
+  );
+}
+
+// ─── OVERVIEW PAGE ────────────────────────────────────────────────────────────
+function OverviewPage(){
+  const{data:kpis,flash}=useKPIs();
+  const alarms=useAlarms(),scores=useScores(),trend=useTrend(),logs=useLogs();
+  const critCount=alarms.filter(a=>a.severity==='CRITICAL').length;
+  const highCount=alarms.filter(a=>a.severity==='HIGH').length;
+  const legends=[{k:'ssh',label:'SSH',c:'#3b9ef8'},{k:'web',label:'WEB',c:'#c87ad4'},{k:'ftp',label:'FTP',c:'#3ddc84'},{k:'kernel',label:'KERNEL',c:'#e05a8a'},{k:'prediction',label:'PREDICT',c:'#f5a623'}];
+
+  return React.createElement('div',{style:{padding:'14px 16px',display:'flex',flexDirection:'column',gap:12}},
+    // Banner row
+    React.createElement('div',{style:{display:'flex',gap:10,alignItems:'stretch'}},
+      React.createElement(Panel,{style:{flex:1,display:'flex',alignItems:'center',gap:16,padding:'12px 16px'}},
+        React.createElement(HealthRing,{score:kpis.health_score}),
+        React.createElement('div',null,
+          React.createElement('div',{style:{fontSize:10,color:'#4a7a4a',marginBottom:4,letterSpacing:'0.08em'}},'SYSTEM STATUS'),
+          React.createElement('div',{style:{fontSize:14,fontWeight:600,color:'#e8ffe8',marginBottom:6}},
+            kpis.health_score>80?'Nominal Operations':kpis.health_score>60?'Elevated Threat Level':'Critical — Intervention Required'
+          ),
+          React.createElement('div',{style:{display:'flex',gap:10,flexWrap:'wrap'}},
+            critCount>0&&React.createElement('span',{style:{fontSize:9,color:'#e05252',background:'#2a1010',padding:'2px 8px',borderRadius:3}},`${critCount} CRITICAL`),
+            highCount>0&&React.createElement('span',{style:{fontSize:9,color:'#f5a623',background:'#2a1e0a',padding:'2px 8px',borderRadius:3}},`${highCount} HIGH`),
+            React.createElement('span',{style:{fontSize:9,color:'#3a5a3a'}},`${alarms.length} alarms this cycle`)
+          )
+        )
+      ),
+      ...[{label:'Blocked IPs',value:kpis.blocked_ips,c:'#e05252'},{label:'Active Conns',value:kpis.active_connections,c:'#3b9ef8'},{label:'SSH Fails/min',value:kpis.ssh_failures,c:'#f5a623'},{label:'Error Rate %',value:kpis.error_rate,c:'#c87ad4'}].map(s=>
+        React.createElement(Panel,{key:s.label,style:{minWidth:90,textAlign:'center',display:'flex',flexDirection:'column',justifyContent:'center'}},
+          React.createElement('div',{style:{fontSize:22,fontWeight:600,color:s.c,fontFamily:'monospace',animation:flash?'flashIn 0.6s':undefined}},
+            typeof s.value==='number'&&!Number.isInteger(s.value)?s.value.toFixed(1):Math.round(s.value)
+          ),
+          React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginTop:4,letterSpacing:'0.04em'}},s.label)
+        )
+      )
+    ),
+    // Gauge row
+    React.createElement(Panel,null,
+      React.createElement(STitle,null,'Engine Health — Real-time Gauges'),
+      React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:4}},
+        React.createElement(Gauge,{value:kpis.cpu_load,max:100,color:'#3ddc84',label:'CPU Load',sublabel:'%',flash}),
+        React.createElement(Gauge,{value:kpis.ssh_failures,max:20,color:'#3b9ef8',label:'SSH Failures',sublabel:'/min',flash}),
+        React.createElement(Gauge,{value:kpis.active_connections,max:200,color:'#c87ad4',label:'Web Requests',sublabel:'active',flash}),
+        React.createElement(Gauge,{value:kpis.blocked_ips,max:20,color:'#e05252',label:'Blocked IPs',sublabel:'total',flash}),
+        React.createElement(Gauge,{value:kpis.error_rate,max:10,color:'#f5a623',label:'Kernel Errors',sublabel:'/min',flash})
+      )
+    ),
+    // Trend + Engine scores
+    React.createElement('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}},
+      React.createElement(Panel,null,
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+          React.createElement(STitle,null,'Attack Timeline — 24h sliding window'),
+          React.createElement('div',{style:{display:'flex',gap:10}},
+            legends.map(l=>React.createElement('span',{key:l.k,style:{display:'flex',alignItems:'center',gap:4,fontSize:9,color:'#4a7a4a'}},
+              React.createElement('span',{style:{width:8,height:2,background:l.c,display:'inline-block',borderRadius:1}}),l.label
+            ))
+          )
+        ),
+        React.createElement(TrendChart,{data:trend})
+      ),
+      React.createElement(Panel,null,
+        React.createElement(STitle,{accent:'#c87ad4'},'Engine Risk Scores'),
+        React.createElement(EngineBars,{scores})
+      )
+    ),
+    // Alarms + Correlation + Logs
+    React.createElement('div',{style:{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:12}},
+      React.createElement(Panel,null,
+        React.createElement(STitle,{accent:'#f5a623'},'Live Alarm Feed — AI Insights'),
+        React.createElement(AlarmFeed,{alarms})
+      ),
+      React.createElement(Panel,null,
+        React.createElement(STitle,{accent:'#3b9ef8'},'Correlation Map'),
+        React.createElement(CorrelationMap,null),
+        React.createElement('div',{style:{fontSize:9,color:'#2a4a2a',textAlign:'center',marginTop:4}},'Dashed = active attack path')
+      ),
+      React.createElement(Panel,null,
+        React.createElement(STitle,{accent:'#3ddc84'},'Live Log Stream'),
+        React.createElement(LogTerminal,{logs}),
+        React.createElement('div',{style:{marginTop:10,paddingTop:8,borderTop:'1px solid #131e13',fontSize:9,color:'#3a5a3a',display:'flex',justifyContent:'space-between'}},
+          React.createElement('span',null,'Last 16 lines'),
+          React.createElement('span',{style:{color:'#3ddc84'}},'● streaming')
+        )
+      )
+    ),
+    // Footer
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:2}},
+      React.createElement('span',{style:{fontSize:9,color:'#2a4a2a',letterSpacing:'0.06em'}},'10-layer IDPS · SSH · WEB · SESSION · FTP · KERNEL · PREDICTION · CrewAI 6-agent'),
+      React.createElement('div',{style:{display:'flex',alignItems:'center',gap:6}},
+        React.createElement('div',{style:{width:6,height:6,borderRadius:'50%',background:'#3ddc84'}}),
+        React.createElement('span',{style:{fontSize:9,color:'#3ddc84',letterSpacing:'0.1em'}},'LIVE · updates every 12s')
+      )
+    )
+  );
+}
+
+// ─── PAGE 2: AI CONTROL PANEL ────────────────────────────────────────────────
+
+// Real agent decisions matching agents.py roles + tasks.py structure
+const AGENT_DECISIONS=[
+  {id:'d1',ts:'06:36:28',agent:'Orchestrateur',role:'Orchestrateur de Pipeline',action:'ESCALATE_TO_PASS2',threat:'ELEVATED',confidence:0.87,severity:'HIGH',
+   reasoning:'Pass 1 detected 4 high-risk alarms from 192.168.56.103 across SSH and WEB engines within a 2-minute window. Time correlation indicates coordinated multi-vector attack. Lowering ssh_high_risk_threshold from 38 → 28 and scheduling session engine rerun to catch lateral movement.',
+   config:{ssh_high_risk_threshold:28,ssh_med_risk_threshold:18,web_high_risk_threshold:null,ftp_high_risk_threshold:null,escalate_ips:['192.168.56.103'],suppress_ips:[],rerun_engines:['session'],correlation_window_min:20},
+   pass1:{ssh:38,web:55,ftp:55,kernel:50,session:50},targets:['192.168.56.103'],approved:null,feedback:''},
+  {id:'d2',ts:'06:36:44',agent:'Détecteur',role:'Détecteur d\'Anomalies',action:'TRIGGER_ALARM',threat:'CRITICAL',confidence:0.94,severity:'CRITICAL',
+   reasoning:'SSH brute-force confirmed: 240 failures from 150.183.249.110, weighted risk score 91.3 — above BLOCK threshold (38). Attack chain SCAN→BRUTE confirmed via 30-min sliding window. Alarm raised. IP escalated by orchestrator in Pass 2.',
+   config:null,pass1:{ssh:38,web:55,ftp:55,kernel:50,session:50},targets:['150.183.249.110'],approved:null,feedback:''},
+  {id:'d3',ts:'06:36:51',agent:'Correcteur',role:'Correcteur Automatique',action:'BLOCK_AWS_SG',threat:'CRITICAL',confidence:0.98,severity:'CRITICAL',
+   reasoning:'Brute-force SSH confirmed critical (score 91.3). Initiating Boto3 call to AWS Security Group — adding inbound DENY rule for 150.183.249.110 on port 22. Fail2Ban also triggered for repeated auth failures.',
+   config:null,pass1:null,targets:['150.183.249.110'],approved:null,feedback:''},
+  {id:'d4',ts:'06:37:02',agent:'Analyste',role:'Analyste de Patterns',action:'SURVEILLANCE_NORMALE',threat:'NORMAL',confidence:0.91,severity:'INFO',
+   reasoning:'FTP activity from 192.168.56.1 within expected bounds: 3 transfers, no RETR spike detected, no credential anomalies. IP entropy normal (1.2 bits). No action required. Session marked as nominal, continuing monitoring.',
+   config:null,pass1:null,targets:['192.168.56.1'],approved:null,feedback:''},
+  {id:'d5',ts:'06:37:18',agent:'Rapporteur',role:'Rapporteur & Synthétiseur',action:'SAVE_REPORT_S3',threat:'NORMAL',confidence:1.0,severity:'INFO',
+   reasoning:'Session analysis complete. Pass 2 ran with adjusted thresholds. 3 critical alarms raised, 1 IP blocked via AWS SG. Report saved to s3://bucket/processed/report_20260412_063627.json and long_term_memory.json updated (50 sessions retained).',
+   config:null,pass1:null,targets:[],approved:null,feedback:''},
+  {id:'d6',ts:'06:37:25',agent:'Collecteur',role:'Collecteur de Logs',action:'SURVEILLANCE_NORMALE',threat:'NORMAL',confidence:0.95,severity:'INFO',
+   reasoning:'S3 ingestion complete: 3 servers (192.168.56.103, .1, .101), 4,821 log rows loaded from processed/dataset_*.csv. Schema normalized. No ingestion errors. Proceeding to metrics computation.',
+   config:null,pass1:null,targets:[],approved:null,feedback:''},
+];
+
+// Real IPs from long_term_memory.json ips_suspectes
+const MEMORY_SESSIONS=[
+  {id:'s1',date:'2026-04-12T06:36:27',threat:'CRITICAL',alarms1:13,alarmsFinal:37,pass2:true,health:62.4,ips:['150.183.249.110','203.101.45.59','207.30.238.8']},
+  {id:'s2',date:'2026-04-12T06:43:21',threat:'NORMAL',alarms1:0,alarmsFinal:0,pass2:false,health:99.8,ips:['192.168.56.103','192.168.56.1','192.168.56.101']},
+  {id:'s3',date:'2026-04-11T21:33:04',threat:'NORMAL',alarms1:0,alarmsFinal:0,pass2:false,health:99.8,ips:['192.168.56.103','192.168.56.1','192.168.56.101']},
+  {id:'s4',date:'2026-03-31T09:34:06',threat:'ELEVATED',alarms1:3,alarmsFinal:5,pass2:true,health:78.2,ips:['192.168.56.103']},
+  {id:'s5',date:'2026-03-26T15:26:10',threat:'NORMAL',alarms1:0,alarmsFinal:0,pass2:false,health:99.1,ips:['192.168.56.103','192.168.56.1']},
+  {id:'s6',date:'2026-03-23T13:18:53',threat:'NORMAL',alarms1:0,alarmsFinal:0,pass2:false,health:98.7,ips:['192.168.56.103','192.168.56.1','192.168.56.101']},
+  {id:'s7',date:'2026-03-23T11:45:23',threat:'NORMAL',alarms1:0,alarmsFinal:0,pass2:false,health:99.2,ips:['192.168.56.103']},
+  {id:'s8',date:'2026-03-12T06:23:16',threat:'CRITICAL',alarms1:37,alarmsFinal:37,pass2:false,health:41.0,ips:['150.183.249.110','203.101.45.59','207.30.238.8','211.72.151.162','211.107.232.1']},
+];
+
+const ALL_SUSPICIOUS_IPS=['150.183.249.110','203.101.45.59','207.30.238.8','211.72.151.162','211.107.232.1','192.168.56.103','192.168.56.1','192.168.56.101'];
+
+// Default thresholds from hybrid_config.py + ml_engine_bridge.py
+const DEFAULT_THRESHOLDS={ssh_high:38,ssh_med:22,web_high:55,web_med:30,ftp_high:55,ftp_med:30,kernel_high:50,session_high:50,session_med:25,corr_window:30};
+
+const AGENT_COLORS={Orchestrateur:'#f5a623',Détecteur:'#e05252',Correcteur:'#e05a8a',Analyste:'#3b9ef8',Rapporteur:'#3ddc84',Collecteur:'#c87ad4'};
+const THREAT_COLOR={CRITICAL:'#e05252',ELEVATED:'#f5a623',NORMAL:'#3ddc84'};
+const THREAT_BG={CRITICAL:'#2a1010',ELEVATED:'#2a1e0a',NORMAL:'#0a1e0a'};
+const SEV2_COLOR={CRITICAL:'#e05252',HIGH:'#f5a623',MED:'#3b9ef8',LOW:'#4a9a6a',INFO:'#4a7a5a'};
+
+function P2Panel({children,style={}}){return React.createElement('div',{style:{background:'#0f160f',border:'1px solid #1a2a1a',borderRadius:8,padding:'14px 16px',...style}},children)}
+function P2Title({children,accent='#3ddc84'}){return React.createElement('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:12}},React.createElement('div',{style:{width:2,height:12,background:accent,borderRadius:1}}),React.createElement('span',{style:{fontSize:9,fontWeight:600,color:'#4a7a4a',letterSpacing:'0.12em',textTransform:'uppercase'}},children))}
+
+function DecisionCard({d,onApprove,onReject,onFeedback}){
+  const[expanded,setExpanded]=useState(false);
+  const[fb,setFb]=useState(d.feedback||'');
+  const ac=AGENT_COLORS[d.agent]||'#4a7a4a';
+  const tc=THREAT_COLOR[d.threat]||'#4a7a4a';
+  const sc=SEV2_COLOR[d.severity]||'#4a7a4a';
+
+  return React.createElement('div',{style:{border:`1px solid ${d.approved===true?'#1a4a1a':d.approved===false?'#4a1a1a':'#1a2a1a'}`,borderRadius:7,marginBottom:8,overflow:'hidden',transition:'border 0.3s',animation:'slideIn 0.3s ease'}},
+    // Header row
+    React.createElement('div',{onClick:()=>setExpanded(e=>!e),style:{display:'grid',gridTemplateColumns:'auto 1fr auto auto auto',gap:10,alignItems:'center',padding:'10px 14px',cursor:'pointer',background:'#0a130a'}},
+      // Agent badge
+      React.createElement('div',{style:{width:7,height:7,borderRadius:'50%',background:ac,flexShrink:0}}),
+      // Main info
+      React.createElement('div',null,
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:2}},
+          React.createElement('span',{style:{fontSize:10,fontWeight:600,color:ac,letterSpacing:'0.04em'}},d.agent),
+          React.createElement('span',{style:{fontSize:9,color:'#2a4a2a'}},'·'),
+          React.createElement('span',{style:{fontSize:9,color:'#4a6a4a'}},d.ts),
+          React.createElement('span',{style:{fontSize:8,padding:'1px 6px',borderRadius:3,background:THREAT_BG[d.threat],color:tc,letterSpacing:'0.06em',marginLeft:4}},d.threat)
+        ),
+        React.createElement('div',{style:{fontSize:10,color:'#c8e8c8',fontWeight:500}},d.action.replace(/_/g,' '))
+      ),
+      // Confidence
+      React.createElement('div',{style:{textAlign:'right',minWidth:52}},
+        React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginBottom:2}},'conf.'),
+        React.createElement('div',{style:{fontSize:12,fontWeight:600,color:d.confidence>0.85?'#3ddc84':d.confidence>0.7?'#f5a623':'#e05252'}},`${Math.round(d.confidence*100)}%`)
+      ),
+      // Severity
+      React.createElement('div',{style:{fontSize:8,padding:'2px 7px',borderRadius:3,background:'#1a2a1a',color:sc,letterSpacing:'0.06em',whiteSpace:'nowrap'}},d.severity),
+      // Expand arrow
+      React.createElement('div',{style:{fontSize:9,color:'#2a4a2a',transform:expanded?'rotate(180deg)':'rotate(0deg)',transition:'transform 0.2s'}},'▼')
+    ),
+    // Expanded body
+    expanded&&React.createElement('div',{style:{borderTop:'1px solid #131e13',padding:'12px 14px',background:'#080f08'}},
+      // Reasoning
+      React.createElement('div',{style:{marginBottom:12}},
+        React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginBottom:6,letterSpacing:'0.08em'}},'CHAIN-OF-THOUGHT REASONING'),
+        React.createElement('div',{style:{fontSize:10,color:'#7aaa7a',lineHeight:1.7,padding:'10px 12px',background:'#0d160d',borderRadius:5,borderLeft:'2px solid '+ac}},d.reasoning)
+      ),
+      // Config diff (if pass 2)
+      d.config&&React.createElement('div',{style:{marginBottom:12}},
+        React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginBottom:6,letterSpacing:'0.08em'}},'DYNAMICCONFIG — THRESHOLD OVERRIDES (PASS 1 → PASS 2)'),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}},
+          ['ssh_high_risk_threshold','ssh_med_risk_threshold','web_high_risk_threshold','ftp_high_risk_threshold','kernel_high_risk_threshold','session_high_risk_threshold'].map(k=>{
+            const override=d.config[k];
+            const defaults={ssh_high_risk_threshold:38,ssh_med_risk_threshold:22,web_high_risk_threshold:55,ftp_high_risk_threshold:55,kernel_high_risk_threshold:50,session_high_risk_threshold:50};
+            const def=defaults[k];
+            const changed=override!==null&&override!==undefined;
+            return React.createElement('div',{key:k,style:{padding:'6px 8px',borderRadius:4,background:changed?'#1a2e0a':'#0d140d',border:`1px solid ${changed?'#2a5a1a':'#131e13'}`}},
+              React.createElement('div',{style:{fontSize:8,color:'#3a5a3a',marginBottom:3}},k.replace(/_/g,' ').replace('risk threshold','').trim().toUpperCase()),
+              React.createElement('div',{style:{fontSize:11,fontFamily:'monospace',color:changed?'#f5a623':'#3a5a3a'}},
+                changed?`${def} → ${override}`:`${def} (default)`)
+            )
+          }),
+          d.config.escalate_ips&&d.config.escalate_ips.length>0&&React.createElement('div',{style:{padding:'6px 8px',borderRadius:4,background:'#2a1010',border:'1px solid #4a1a1a'}},
+            React.createElement('div',{style:{fontSize:8,color:'#5a3a3a',marginBottom:3}},'ESCALATE IPs'),
+            React.createElement('div',{style:{fontSize:10,color:'#e05252',fontFamily:'monospace'}},d.config.escalate_ips.join(', '))
+          ),
+          d.config.rerun_engines&&d.config.rerun_engines.length>0&&React.createElement('div',{style:{padding:'6px 8px',borderRadius:4,background:'#1a1e0a',border:'1px solid #3a3a1a'}},
+            React.createElement('div',{style:{fontSize:8,color:'#5a5a3a',marginBottom:3}},'RERUN ENGINES'),
+            React.createElement('div',{style:{fontSize:10,color:'#f5a623',fontFamily:'monospace'}},d.config.rerun_engines.join(', '))
+          )
+        )
+      ),
+      // Targets
+      d.targets.length>0&&React.createElement('div',{style:{marginBottom:12,display:'flex',gap:6,alignItems:'center'}},
+        React.createElement('span',{style:{fontSize:9,color:'#3a5a3a'}},'TARGETS:'),
+        d.targets.map(ip=>React.createElement('span',{key:ip,style:{fontSize:9,color:'#3b9ef8',background:'#0a1a2a',padding:'2px 8px',borderRadius:3,fontFamily:'monospace'}},ip))
+      ),
+      // Controls
+      React.createElement('div',{style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+        d.approved===null&&React.createElement(React.Fragment,null,
+          React.createElement('button',{onClick:()=>onApprove(d.id),style:{padding:'5px 14px',borderRadius:4,border:'1px solid #2a5a2a',background:'#0a1e0a',color:'#3ddc84',fontSize:9,cursor:'pointer',letterSpacing:'0.06em',fontFamily:'monospace'}},'APPROVE'),
+          React.createElement('button',{onClick:()=>onReject(d.id),style:{padding:'5px 14px',borderRadius:4,border:'1px solid #4a1a1a',background:'#1a0a0a',color:'#e05252',fontSize:9,cursor:'pointer',letterSpacing:'0.06em',fontFamily:'monospace'}},'REJECT')
+        ),
+        d.approved===true&&React.createElement('span',{style:{fontSize:9,color:'#3ddc84',background:'#0a2a0a',padding:'4px 12px',borderRadius:4,border:'1px solid #1a4a1a'}},'APPROVED'),
+        d.approved===false&&React.createElement('span',{style:{fontSize:9,color:'#e05252',background:'#2a0a0a',padding:'4px 12px',borderRadius:4,border:'1px solid #4a1a1a'}},'REJECTED'),
+        React.createElement('input',{
+          value:fb,onChange:e=>setFb(e.target.value),
+          placeholder:'Add feedback note → saved to long_term_memory.json',
+          style:{flex:1,background:'#0d160d',border:'1px solid #1a2a1a',borderRadius:4,padding:'5px 10px',color:'#7aaa7a',fontSize:9,fontFamily:'monospace',outline:'none',minWidth:200}
+        }),
+        fb&&React.createElement('button',{onClick:()=>onFeedback(d.id,fb),style:{padding:'5px 12px',borderRadius:4,border:'1px solid #1a4a3a',background:'#0a1e18',color:'#3ddc84',fontSize:9,cursor:'pointer',fontFamily:'monospace'}},'SAVE')
+      )
+    )
+  );
+}
+
+function ThresholdSliders({thresholds,onChange}){
+  const fields=[
+    {key:'ssh_high',label:'SSH HIGH',default:38,max:100,color:'#3b9ef8'},
+    {key:'ssh_med',label:'SSH MED',default:22,max:60,color:'#3b9ef8'},
+    {key:'web_high',label:'WEB HIGH',default:55,max:100,color:'#c87ad4'},
+    {key:'web_med',label:'WEB MED',default:30,max:70,color:'#c87ad4'},
+    {key:'ftp_high',label:'FTP HIGH',default:55,max:100,color:'#3ddc84'},
+    {key:'kernel_high',label:'KERNEL HIGH',default:50,max:100,color:'#e05a8a'},
+    {key:'session_high',label:'SESSION HIGH',default:50,max:100,color:'#f5a623'},
+    {key:'corr_window',label:'CORR WINDOW (min)',default:30,max:120,color:'#e87a3a'},
+  ];
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+    fields.map(f=>{
+      const val=thresholds[f.key]??f.default;
+      const changed=val!==f.default;
+      return React.createElement('div',{key:f.key},
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}},
+          React.createElement('span',{style:{fontSize:9,color:changed?f.color:'#4a6a4a',letterSpacing:'0.06em',fontWeight:changed?600:400}},f.label),
+          React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+            changed&&React.createElement('span',{style:{fontSize:8,color:'#3a5a3a'}},`default: ${f.default}`),
+            React.createElement('span',{style:{fontSize:11,color:changed?f.color:'#6a9a6a',fontFamily:'monospace',fontWeight:600,minWidth:28,textAlign:'right'}},val)
+          )
+        ),
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          React.createElement('input',{type:'range',min:1,max:f.max,step:1,value:val,
+            onChange:e=>onChange(f.key,parseInt(e.target.value)),
+            style:{flex:1,accentColor:f.color,height:4,cursor:'pointer'}}),
+          changed&&React.createElement('button',{onClick:()=>onChange(f.key,f.default),
+            style:{fontSize:8,color:'#3a5a3a',background:'none',border:'1px solid #1a2a1a',borderRadius:3,padding:'2px 6px',cursor:'pointer',fontFamily:'monospace'}},'↺')
+        )
+      );
+    })
+  );
+}
+
+function MemoryTimeline({sessions}){
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:4}},
+    sessions.map((s,i)=>{
+      const tc=THREAT_COLOR[s.threat];
+      const date=new Date(s.date);
+      return React.createElement('div',{key:s.id,style:{display:'grid',gridTemplateColumns:'90px 60px 1fr auto auto',gap:8,alignItems:'center',padding:'7px 10px',borderRadius:5,background:i===0?'#0d180d':'#080f08',border:`1px solid ${i===0?'#1a3a1a':'#0d160d'}`}},
+        React.createElement('span',{style:{fontSize:9,color:'#3a5a3a',fontFamily:'monospace'}},`${date.toLocaleDateString()} ${date.toTimeString().slice(0,5)}`),
+        React.createElement('div',{style:{fontSize:8,padding:'2px 6px',borderRadius:3,background:THREAT_BG[s.threat],color:tc,textAlign:'center',letterSpacing:'0.06em'}},s.threat),
+        React.createElement('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+          React.createElement('div',{style:{height:4,flex:1,background:'#1a2a1a',borderRadius:2,overflow:'hidden'}},
+            React.createElement('div',{style:{height:'100%',width:`${s.health}%`,background:s.health>80?'#3ddc84':s.health>60?'#f5a623':'#e05252',borderRadius:2}})
+          ),
+          React.createElement('span',{style:{fontSize:9,color:'#4a6a4a',minWidth:32}},`${s.health.toFixed(0)}%`)
+        ),
+        React.createElement('span',{style:{fontSize:9,color:s.pass2?'#f5a623':'#2a4a2a',letterSpacing:'0.04em'}},s.pass2?'P2':'—'),
+        React.createElement('span',{style:{fontSize:9,color:s.alarmsFinal>0?'#e05252':'#2a4a2a',fontFamily:'monospace'}},s.alarmsFinal>0?`${s.alarmsFinal} alarms`:'clean')
+      );
+    })
+  );
+}
+
+function IPPersistence({sessions}){
+  const ipMap={};
+  sessions.forEach(s=>{s.ips.forEach(ip=>{if(!ipMap[ip])ipMap[ip]={ip,count:0,threats:[],lastSeen:s.date};ipMap[ip].count++;ipMap[ip].threats.push(s.threat);if(s.date>ipMap[ip].lastSeen)ipMap[ip].lastSeen=s.date;})});
+  const sorted=Object.values(ipMap).sort((a,b)=>b.count-a.count);
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+    sorted.map(item=>{
+      const hasCrit=item.threats.includes('CRITICAL'),hasElev=item.threats.includes('ELEVATED');
+      const barColor=hasCrit?'#e05252':hasElev?'#f5a623':'#3b9ef8';
+      return React.createElement('div',{key:item.ip,style:{display:'grid',gridTemplateColumns:'130px 1fr 24px 80px',gap:8,alignItems:'center',padding:'6px 8px',borderRadius:4,background:hasCrit?'#1a0a0a':hasElev?'#1a1200':'#0a130a',border:`1px solid ${hasCrit?'#3a1a1a':hasElev?'#3a2a0a':'#131e13'}`}},
+        React.createElement('span',{style:{fontSize:9,fontFamily:'monospace',color:barColor}},item.ip),
+        React.createElement('div',{style:{height:4,background:'#1a2a1a',borderRadius:2,overflow:'hidden'}},
+          React.createElement('div',{style:{height:'100%',width:`${Math.min(100,item.count/sessions.length*100*2)}%`,background:barColor,borderRadius:2}})
+        ),
+        React.createElement('span',{style:{fontSize:9,color:'#4a6a4a',textAlign:'center'}},item.count),
+        React.createElement('span',{style:{fontSize:8,color:'#3a5a3a'}},new Date(item.lastSeen).toLocaleDateString())
+      );
+    })
+  );
+}
+
+function ThresholdHistoryChart({sessions}){
+  if(!sessions.length)return null;
+  const W=360,H=80;
+  const healthVals=sessions.map(s=>s.health).reverse();
+  const maxH=100,minH=Math.min(...healthVals)-5;
+  const sx=i=>(i/(healthVals.length-1))*W;
+  const sy=v=>H-((v-minH)/(maxH-minH))*H;
+  const pathD=healthVals.map((v,i)=>`${i===0?'M':'L'}${sx(i)},${sy(v)}`).join(' ');
+  const areaD=pathD+` L${sx(healthVals.length-1)},${H} L0,${H} Z`;
+  return React.createElement('div',null,
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:6}},
+      React.createElement('span',{style:{fontSize:9,color:'#3a5a3a'}},'Health score trend across sessions'),
+      React.createElement('span',{style:{fontSize:9,color:'#4a6a4a'}}),
+    ),
+    React.createElement('svg',{width:'100%',viewBox:`0 0 ${W} ${H+4}`,style:{display:'block'}},
+      [40,60,80,100].map(v=>React.createElement('g',{key:v},
+        React.createElement('line',{x1:0,x2:W,y1:sy(v),y2:sy(v),stroke:'#151f15',strokeWidth:1}),
+        React.createElement('text',{x:2,y:sy(v)-2,fill:'#2a4a2a',fontSize:7,fontFamily:'monospace'},v)
+      )),
+      React.createElement('path',{d:areaD,fill:'#3ddc84',fillOpacity:0.08}),
+      React.createElement('path',{d:pathD,fill:'none',stroke:'#3ddc84',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'}),
+      sessions.filter(s=>s.threat!=='NORMAL').reverse().map((s,i)=>{
+        const idx=sessions.length-1-sessions.filter(x=>x.threat!=='NORMAL').indexOf(s);
+        return React.createElement('circle',{key:i,cx:sx(idx),cy:sy(s.health),r:3,fill:THREAT_COLOR[s.threat]})
+      })
+    ),
+    React.createElement('div',{style:{display:'flex',gap:10,marginTop:6}},
+      [{c:'#e05252',l:'Critical session'},{c:'#f5a623',l:'Elevated session'},{c:'#3ddc84',l:'Health trend'}].map(x=>
+        React.createElement('span',{key:x.l,style:{display:'flex',alignItems:'center',gap:4,fontSize:8,color:'#3a5a3a'}},
+          React.createElement('div',{style:{width:6,height:6,borderRadius:'50%',background:x.c}}),x.l
+        )
+      )
+    )
+  );
+}
+
+function AIPage(){
+  const[decisions,setDecisions]=useState(AGENT_DECISIONS.map(d=>({...d})));
+  const[thresholds,setThresholds]=useState({...DEFAULT_THRESHOLDS});
+  const[tab,setTab]=useState('decisions');
+  const[savedFeedback,setSavedFeedback]=useState([]);
+
+  const approve=id=>setDecisions(prev=>prev.map(d=>d.id===id?{...d,approved:true}:d));
+  const reject=id=>setDecisions(prev=>prev.map(d=>d.id===id?{...d,approved:false}:d));
+  const saveFeedback=(id,fb)=>{
+    setDecisions(prev=>prev.map(d=>d.id===id?{...d,feedback:fb}:d));
+    setSavedFeedback(prev=>[...prev,{id,fb,ts:new Date().toTimeString().slice(0,8)}]);
+  };
+  const setThresh=(key,val)=>setThresholds(prev=>({...prev,[key]:val}));
+
+  const critCount=decisions.filter(d=>d.severity==='CRITICAL').length;
+  const pendingCount=decisions.filter(d=>d.approved===null&&d.severity!=='INFO').length;
+  const approvedCount=decisions.filter(d=>d.approved===true).length;
+
+  const tabs=['decisions','thresholds','memory','ips'];
+  const tabLabels={decisions:'Decision Feed',thresholds:'Threshold Control',memory:'Session Memory',ips:'IP Persistence'};
+
+  return React.createElement('div',{style:{padding:'14px 16px',display:'flex',flexDirection:'column',gap:12,height:'100%',overflowY:'auto'}},
+    // Summary banner
+    React.createElement('div',{style:{display:'flex',gap:10}},
+      ...[
+        {label:'Agent Decisions',value:decisions.length,color:'#c8e8c8'},
+        {label:'Pending Review',value:pendingCount,color:pendingCount>0?'#f5a623':'#3ddc84'},
+        {label:'Critical Actions',value:critCount,color:critCount>0?'#e05252':'#3ddc84'},
+        {label:'Approved',value:approvedCount,color:'#3ddc84'},
+        {label:'Sessions in Memory',value:MEMORY_SESSIONS.length,color:'#3b9ef8'},
+        {label:'Suspicious IPs',value:ALL_SUSPICIOUS_IPS.length,color:'#c87ad4'},
+      ].map(s=>React.createElement(P2Panel,{key:s.label,style:{flex:1,textAlign:'center',padding:'10px 12px'}},
+        React.createElement('div',{style:{fontSize:22,fontWeight:600,color:s.color,fontFamily:'monospace'}},s.value),
+        React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginTop:4,letterSpacing:'0.04em'}},s.label)
+      ))
+    ),
+    // Tab navigation
+    React.createElement('div',{style:{display:'flex',gap:4,borderBottom:'1px solid #1a2a1a',paddingBottom:0}},
+      tabs.map(t=>React.createElement('button',{key:t,onClick:()=>setTab(t),style:{padding:'7px 14px',border:'none',borderBottom:tab===t?'2px solid #3ddc84':'2px solid transparent',background:'none',color:tab===t?'#3ddc84':'#3a5a3a',fontSize:10,cursor:'pointer',fontFamily:'monospace',letterSpacing:'0.04em',fontWeight:tab===t?600:400,marginBottom:-1}},tabLabels[t]))
+    ),
+    // Tab content
+    tab==='decisions'&&React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:9,color:'#2a4a2a',marginBottom:10}},`${decisions.length} agent actions this session — click any card to expand reasoning`),
+      decisions.map(d=>React.createElement(DecisionCard,{key:d.id,d,onApprove:approve,onReject:reject,onFeedback:saveFeedback})),
+      savedFeedback.length>0&&React.createElement(P2Panel,{style:{marginTop:8}},
+        React.createElement(P2Title,{accent:'#3ddc84'},'Saved Feedback — written to long_term_memory.json'),
+        savedFeedback.map((f,i)=>React.createElement('div',{key:i,style:{fontSize:9,color:'#5a8a5a',padding:'4px 8px',borderLeft:'2px solid #1a4a2a',marginBottom:4}},
+          React.createElement('span',{style:{color:'#3a5a3a'}},f.ts+' · '),f.fb
+        ))
+      )
+    ),
+    tab==='thresholds'&&React.createElement(P2Panel,null,
+      React.createElement(P2Title,{accent:'#f5a623'},'DynamicConfig Threshold Sliders — overrides engine defaults'),
+      React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginBottom:14}},
+        'Modify any threshold → DynamicConfig override. Yellow = changed from default. These values feed directly into Pass 2 detection.'
+      ),
+      React.createElement(ThresholdSliders,{thresholds,onChange:setThresh}),
+      React.createElement('div',{style:{marginTop:14,paddingTop:12,borderTop:'1px solid #131e13',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        React.createElement('span',{style:{fontSize:9,color:'#3a5a3a'}},`${Object.keys(thresholds).filter(k=>thresholds[k]!==DEFAULT_THRESHOLDS[k]).length} overrides active`),
+        React.createElement('div',{style:{display:'flex',gap:8}},
+          React.createElement('button',{onClick:()=>setThresholds({...DEFAULT_THRESHOLDS}),style:{padding:'5px 12px',borderRadius:4,border:'1px solid #1a2a1a',background:'#0d160d',color:'#4a6a4a',fontSize:9,cursor:'pointer',fontFamily:'monospace'}},'Reset All'),
+          React.createElement('button',{style:{padding:'5px 14px',borderRadius:4,border:'1px solid #2a5a2a',background:'#0a1e0a',color:'#3ddc84',fontSize:9,cursor:'pointer',fontFamily:'monospace'}},'Apply to Next Run')
+        )
+      )
+    ),
+    tab==='memory'&&React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:12}},
+      React.createElement(P2Panel,null,
+        React.createElement(P2Title,{accent:'#3ddc84'},'Health Score History — across sessions'),
+        React.createElement(ThresholdHistoryChart,{sessions:MEMORY_SESSIONS})
+      ),
+      React.createElement(P2Panel,null,
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+          React.createElement(P2Title,{accent:'#3b9ef8'},'Session Timeline — last 50 sessions (long_term_memory.json)'),
+          React.createElement('span',{style:{fontSize:9,color:'#2a4a2a'}},'P2 = Pass 2 ran')
+        ),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'90px 60px 1fr auto auto',gap:8,marginBottom:8,padding:'4px 10px'}},
+          ['DATE','THREAT','HEALTH SCORE','P2','ALARMS'].map(h=>React.createElement('span',{key:h,style:{fontSize:8,color:'#2a4a2a',letterSpacing:'0.08em'}},h))
+        ),
+        React.createElement(MemoryTimeline,{sessions:MEMORY_SESSIONS})
+      )
+    ),
+    tab==='ips'&&React.createElement(P2Panel,null,
+      React.createElement(P2Title,{accent:'#e05252'},'Suspicious IP Persistence — across all sessions'),
+      React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginBottom:12}},'IPs seen in multiple sessions are persistent threats. Bar width = frequency. Color = highest threat level seen.'),
+      React.createElement('div',{style:{display:'grid',gridTemplateColumns:'130px 1fr 24px 80px',gap:8,marginBottom:8,padding:'0 8px'}},
+        ['IP ADDRESS','FREQUENCY','#','LAST SEEN'].map(h=>React.createElement('span',{key:h,style:{fontSize:8,color:'#2a4a2a',letterSpacing:'0.08em'}},h))
+      ),
+      React.createElement(IPPersistence,{sessions:MEMORY_SESSIONS})
+    )
+  );
+}
+// ─── PAGE 3: PIPELINE VIEW ────────────────────────────────────────────────────
+
+// 8 real steps from main.py pipeline docstring + logging_utils.py events
+const PIPELINE_STEPS=[
+  {id:'s1',step:1,label:'S3 Ingestion',module:'ingestion.py',event:'PIPELINE_START',
+   color:'#3b9ef8',
+   inputs:['s3://bucket/processed/dataset_*.csv','boto3 client','BotoConfig(retries=3)'],
+   outputs:['df — 4821 rows','3 servers loaded','schema: Date/IP/Etat/Service/Message'],
+   agents:[],
+   logLines:[
+     'boto3.client("s3") → connected',
+     'listing objects: processed/dataset_*.csv',
+     'dataset_20260412_063601.csv → 2104 rows',
+     'dataset_20260412_063612.csv → 1893 rows',
+     'dataset_20260412_063618.csv → 824 rows',
+     '[PIPELINE_START] row_count=4821 server_count=3',
+     'data_sources=["192.168.56.103","192.168.56.1","192.168.56.101"]',
+   ]},
+  {id:'s2',step:2,label:'Normalization',module:'adapter.py',event:'SCHEMA_NORM',
+   color:'#c87ad4',
+   inputs:['df raw (4821 rows)','schema mapping','unicode fix'],
+   outputs:['df_norm — columns: Date,IP,Etat,Service,Message','null IP → 0.0.0.0','Etat mapped: Info/Warning/Error/Critical'],
+   agents:[],
+   logLines:[
+     'adapter.normalize() start',
+     'column rename: Timestamp→Date, SourceIP→IP',
+     'null IPs filled → 0.0.0.0 (12 rows)',
+     'Etat mapping: Info=0 Warning=1 Error=2 Critical=3',
+     'unicode errors repaired: 3 rows',
+     'df_norm ready: 4821 rows × 8 cols',
+   ]},
+  {id:'s3',step:3,label:'Metrics & Summary',module:'metriques.py',event:'METRICS_COMPUTED',
+   color:'#f5a623',
+   inputs:['df_norm','erreurs_par_heure','tentatives_par_ip'],
+   outputs:['health_score=62.4%','alert_status=CRITICAL','attack_pattern=concentrated_attacker','ip_entropy=1.83 bits','unique_attacking_ips=5','velocity_spike=True'],
+   agents:[],
+   logLines:[
+     'calculer_metriques() start',
+     'erreurs_par_heure: peak at 06:18 → 37 errors',
+     'tentatives_par_ip: top IP 150.183.249.110 → 240 attempts',
+     'events_par_service: SSH=3214 WEB=891 FTP=412 KERN=304',
+     'health_score=62.4% (threshold: <70 → ELEVATED)',
+     'ip_entropy=1.83 bits (concentrated attack pattern)',
+     '[METRICS_COMPUTED] alert_status=CRITICAL',
+   ]},
+  {id:'s4',step:4,label:'Pass 1 Detection',module:'ml_engine_bridge.py',event:'PASS1_COMPLETE',
+   color:'#e05252',
+   inputs:['df_norm','DEFAULT thresholds: SSH≥38 WEB≥55 FTP≥55 KERNEL≥50','corr_window=30min'],
+   outputs:['37 alarms raised','SSH: 5 BLOCK','CHAIN: SCAN→BRUTE confirmed','threshold_snapshot saved'],
+   agents:[],
+   logLines:[
+     '[BRIDGE v4] PASS 1 — default thresholds',
+     'run_idps() SSH engine → 5 alarms (score>38)',
+     'run_web_idps() WEB engine → 0 alarms',
+     'run_ftp_idps() FTP engine → 0 alarms',
+     'run_kernel_idps() KERNEL → 0 alarms',
+     'run_session_idps() SESSION → 0 alarms',
+     'run_prediction_engine() → BOTNET_WARMUP flag',
+     'time_correlation: SCAN→BRUTE chain confirmed (150.183.249.110)',
+     '[PASS1_COMPLETE] alarm_count=37 domain=SSH:37',
+   ]},
+  {id:'s5',step:5,label:'Orchestrator → DynamicConfig',module:'agents.py + hybrid_config.py',event:'DYNAMIC_CONFIG_ISSUED',
+   color:'#f5a623',
+   inputs:['alarmes_pass1 (37)','metrics_summary','historical_context (8 sessions)','Groq LLM (throttled)'],
+   outputs:['ssh_high→28','ssh_med→18','rerun_engines=["session"]','escalate_ips=["150.183.249.110"]','threat_level=ELEVATED','confidence=0.87'],
+   agents:['Orchestrateur'],
+   logLines:[
+     '[HYBRID Step 5] Orchestrator → DynamicConfig',
+     'tache_dynamic_config kickoff(inputs=agent_inputs)',
+     'Groq LLM call (throttled, retry 429)',
+     'Orchestrateur reasoning: "Multi-vector attack confirmed..."',
+     'DynamicConfig.from_json() parse OK',
+     '[HYBRID] Config: SSH_thresh=28 | escalate=["150.183.249.110"]',
+     '[HYBRID] Threat: ELEVATED | confidence=0.87',
+     '[DYNAMIC_CONFIG_ISSUED] rerun_engines=["session"]',
+   ]},
+  {id:'s6',step:6,label:'Pass 2 Detection',module:'ml_engine_bridge.py',event:'PASS2_COMPLETE',
+   color:'#e87a3a',
+   inputs:['df_norm','ADJUSTED: SSH≥28 SESSION≥40','escalate_ips=["150.183.249.110"]','rerun=["session"]'],
+   outputs:['37 alarms final (+0 delta)','session engine: 2 new alarms','150.183.249.110 force-escalated to BLOCK','threshold_snapshot_pass2 saved'],
+   agents:[],
+   logLines:[
+     '[BRIDGE v4] PASS 2 — agent-adjusted thresholds',
+     'engines_filter=["session"] (partial rerun)',
+     'run_session_idps() → 2 new SESSION alarms',
+     'force-escalate: 150.183.249.110 → BLOCK (agent override)',
+     'merge: best score wins per IP (pass1 vs pass2)',
+     'alarm_delta=0 (pass1 alarms dominate)',
+     '[PASS2_COMPLETE] alarm_count=37 engines_rerun=["session"]',
+   ]},
+  {id:'s7',step:7,label:'CrewAI — 6 Agents',module:'agents.py + tasks.py',event:'AGENTS_COMPLETE',
+   color:'#3ddc84',
+   inputs:['alarmes_final (37)','dynamic_config','agent_inputs dict','Groq LLM'],
+   outputs:['Crew A: collect+analyse+detect done','Crew B: reporter done','AWS SG block executed (Boto3)','report saved → S3'],
+   agents:['Collecteur','Analyste','Détecteur','Correcteur','Rapporteur'],
+   logLines:[
+     'Crew A kickoff: [collector, analyst, detector]',
+     'tache_collecte: lister_logs_s3 prefix="processed/" → OK',
+     'tache_analyse: pattern=concentrated_attacker entropy=1.83',
+     'tache_detection: 37 alarms confirmed CRITIQUE',
+     'OutilDeclencherAlarme: BRUTE-FORCE SSH | 150.183.249.110',
+     'Crew A complete',
+     'Crew B kickoff: [reporter]',
+     'OutilActionCorrective: BLOCK_AWS_SG → Boto3 call',
+     'outil_rapport: saving to S3 processed/report_*.json',
+     '[AGENTS_COMPLETE] result_excerpt saved',
+   ]},
+  {id:'s8',step:8,label:'Memory + S3 Save',module:'memory.py + upload_s3.py',event:'SESSION_SUMMARY',
+   color:'#5DCAA5',
+   inputs:['resultat_agents','alarmes_final','threshold_snapshots[pass1,pass2]','long_term_memory.json'],
+   outputs:['long_term_memory.json updated (50 sessions cap)','ips_suspectes merged: 8 IPs','threshold_history appended','session_*.jsonl closed'],
+   agents:['Rapporteur'],
+   logLines:[
+     'sauvegarder_memoire() start',
+     'loading long_term_memory.json (7 sessions existing)',
+     'appending session: 2026-04-12T06:36:27',
+     'ips_suspectes merged: +5 new IPs',
+     'threshold_history: 1 new entry (pass2_ran=True)',
+     'sessions cap: 50 (trimming oldest if exceeded)',
+     '[MEMOIRE] Sauvegarde: 8 sessions | 1 threshold records',
+     'upload_s3: output/session_*.jsonl → S3 processed/',
+     '[SESSION_SUMMARY] elapsed=48.3s alarm_delta=0',
+     'SessionLogger.close() → JSONL flushed',
+   ]},
+];
+
+const STEP_COLORS={1:'#3b9ef8',2:'#c87ad4',3:'#f5a623',4:'#e05252',5:'#f5a623',6:'#e87a3a',7:'#3ddc84',8:'#5DCAA5'};
+const AGENT_COL2={Orchestrateur:'#f5a623',Détecteur:'#e05252',Correcteur:'#e05a8a',Analyste:'#3b9ef8',Rapporteur:'#3ddc84',Collecteur:'#c87ad4'};
+
+function usePipelineState(){
+  const[activeStep,setActiveStep]=useState(0);
+  const[stepStatus,setStepStatus]=useState({});
+  const[running,setRunning]=useState(false);
+  const[logs,setLogs]=useState([]);
+  const[logStep,setLogStep]=useState(-1);
+  const intervalRef=useRef(null);
+
+  const startRun=useCallback(()=>{
+    setActiveStep(0);setStepStatus({});setLogs([]);setLogStep(-1);setRunning(true);
+    let step=0,logIdx=0;
+    const tick=()=>{
+      if(step>=PIPELINE_STEPS.length){setRunning(false);clearInterval(intervalRef.current);return;}
+      const s=PIPELINE_STEPS[step];
+      setActiveStep(step);setLogStep(step);
+      if(logIdx<s.logLines.length){
+        const line=`[${s.step}/${PIPELINE_STEPS.length}] ${s.logLines[logIdx]}`;
+        setLogs(prev=>[...prev.slice(-80),{text:line,step:step,ts:new Date().toTimeString().slice(0,8)}]);
+        logIdx++;
+      } else {
+        setStepStatus(prev=>({...prev,[step]:'done'}));
+        step++;logIdx=0;
+      }
+    };
+    intervalRef.current=setInterval(tick,340);
+    return()=>clearInterval(intervalRef.current);
+  },[]);
+
+  const reset=useCallback(()=>{
+    clearInterval(intervalRef.current);
+    setActiveStep(-1);setStepStatus({});setLogs([]);setRunning(false);setLogStep(-1);
+  },[]);
+
+  useEffect(()=>()=>clearInterval(intervalRef.current),[]);
+  return{activeStep,stepStatus,running,logs,logStep,startRun,reset};
+}
+
+function PipelineStepCard({s,isActive,isDone,isPast,onClick,expanded,logLines}){
+  const col=s.color;
+  const statusBg=isDone?'#0a1e0a':isActive?'#0d1a0d':'#080f08';
+  const statusBorder=isDone?`1px solid ${col}60`:isActive?`1px solid ${col}`:' 1px solid #131e13';
+
+  return React.createElement('div',{style:{display:'flex',gap:0,alignItems:'stretch'}},
+    // Connector line + step number column
+    React.createElement('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',width:40,flexShrink:0}},
+      React.createElement('div',{
+        onClick,
+        style:{width:28,height:28,borderRadius:'50%',background:isDone?col:isActive?col+'33':'#0d160d',border:`2px solid ${isDone||isActive?col:'#1a2a1a'}`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,zIndex:1,transition:'all 0.3s'}},
+        isDone?React.createElement('span',{style:{fontSize:10,color:'#0a1e0a',fontWeight:700}},'✓'):
+        React.createElement('span',{style:{fontSize:9,color:isDone||isActive?'#0a1e0a':col,fontWeight:600}},s.step)
+      ),
+      s.step<8&&React.createElement('div',{style:{flex:1,width:2,background:isDone?col+'60':'#1a2a1a',marginTop:2,minHeight:20,transition:'background 0.5s'}},
+        isDone&&React.createElement('div',{style:{width:'100%',height:'100%',background:`linear-gradient(${col},${STEP_COLORS[s.step+1]||col})`,animation:'flowDown 1s linear infinite',opacity:0.7}})
+      )
+    ),
+    // Card body
+    React.createElement('div',{
+      onClick,
+      style:{flex:1,marginLeft:10,marginBottom:8,border:statusBorder,borderRadius:7,background:statusBg,cursor:'pointer',transition:'all 0.3s',overflow:'hidden'}},
+      // Header
+      React.createElement('div',{style:{padding:'10px 14px',display:'flex',alignItems:'center',gap:10}},
+        React.createElement('div',{style:{flex:1}},
+          React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:2}},
+            React.createElement('span',{style:{fontSize:11,fontWeight:600,color:isDone||isActive?col:'#4a6a4a',letterSpacing:'0.04em'}},s.label),
+            isActive&&React.createElement('span',{style:{fontSize:8,color:col,animation:'pulse 1s infinite',letterSpacing:'0.1em'}},'● RUNNING'),
+            isDone&&React.createElement('span',{style:{fontSize:8,color:col,letterSpacing:'0.08em'}},'✓ DONE')
+          ),
+          React.createElement('span',{style:{fontSize:8,color:'#3a5a3a',fontFamily:'monospace'}},s.module)
+        ),
+        s.agents.length>0&&React.createElement('div',{style:{display:'flex',gap:4}},
+          s.agents.map(a=>React.createElement('span',{key:a,style:{fontSize:8,padding:'1px 6px',borderRadius:3,background:'#0d160d',color:AGENT_COL2[a]||'#3ddc84',border:`1px solid ${AGENT_COL2[a]||'#3ddc84'}40`}},a))
+        ),
+        React.createElement('span',{style:{fontSize:9,color:'#2a4a2a',transform:expanded?'rotate(180deg)':'none',transition:'transform 0.2s'}},'▼')
+      ),
+      // Expanded detail
+      expanded&&React.createElement('div',{style:{borderTop:'1px solid #131e13',padding:'10px 14px'}},
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:10}},
+          React.createElement('div',null,
+            React.createElement('div',{style:{fontSize:8,color:'#2a5a2a',letterSpacing:'0.1em',marginBottom:5}},'INPUTS'),
+            s.inputs.map((inp,i)=>React.createElement('div',{key:i,style:{fontSize:9,color:'#5a8a5a',marginBottom:3,paddingLeft:8,borderLeft:'1px solid #1a3a1a'}},inp))
+          ),
+          React.createElement('div',null,
+            React.createElement('div',{style:{fontSize:8,color:'#2a4a5a',letterSpacing:'0.1em',marginBottom:5}},'OUTPUTS'),
+            s.outputs.map((out,i)=>React.createElement('div',{key:i,style:{fontSize:9,color:'#5a8a7a',marginBottom:3,paddingLeft:8,borderLeft:'1px solid #1a3a2a'}},out))
+          )
+        ),
+        // Step logs
+        logLines&&logLines.length>0&&React.createElement('div',{style:{background:'#060d06',borderRadius:4,padding:'8px 10px',maxHeight:90,overflowY:'auto'}},
+          logLines.map((l,i)=>React.createElement('div',{key:i,style:{fontSize:8,fontFamily:'monospace',color:i===logLines.length-1?col:'#3a5a3a',lineHeight:1.7,animation:i===logLines.length-1?'slideIn 0.2s ease':undefined}},
+            React.createElement('span',{style:{color:'#1a3a1a'}},'› '),l
+          ))
+        )
+      )
+    )
+  );
+}
+
+function PipelineLogTerminal({logs,running}){
+  const ref=useRef(null);
+  useEffect(()=>{if(ref.current)ref.current.scrollTop=ref.current.scrollHeight;},[logs]);
+  const getColor=l=>{
+    const s=l.step;
+    if(l.text.includes('ERROR')||l.text.includes('CRITICAL'))return'#e05252';
+    if(l.text.includes('WARN'))return'#f5a623';
+    if(l.text.includes('COMPLETE')||l.text.includes('SUMMARY'))return'#3ddc84';
+    return STEP_COLORS[s+1]||'#4a7a4a';
+  };
+  return React.createElement('div',{ref,style:{fontFamily:'monospace',fontSize:9,lineHeight:1.8,height:320,overflowY:'auto',background:'#060d06',borderRadius:5,padding:'10px 12px',border:'1px solid #131e13'}},
+    logs.length===0&&React.createElement('div',{style:{color:'#2a4a2a',textAlign:'center',marginTop:120}},'Press RUN PIPELINE to start'),
+    logs.map((l,i)=>React.createElement('div',{key:i,style:{color:i===logs.length-1?getColor(l):'#3a5a3a',animation:i===logs.length-1?'slideIn 0.2s ease':undefined}},
+      React.createElement('span',{style:{color:'#1a3a1a'}},'['),
+      React.createElement('span',{style:{color:'#2a5a3a'}},l.ts),
+      React.createElement('span',{style:{color:'#1a3a1a'}},' › '),
+      React.createElement('span',{style:{color:getColor(l)}},l.text)
+    )),
+    running&&React.createElement('div',{style:{color:'#3ddc84',animation:'pulse 1s infinite',marginTop:4}},
+      '█ pipeline executing...'
+    )
+  );
+}
+
+function AgentInteractionPanel({activeStep,stepStatus}){
+  const interactions=[
+    {from:'Orchestrateur',to:'ml_engine_bridge',msg:'DynamicConfig issued: ssh_high→28, rerun session',step:4,color:'#f5a623'},
+    {from:'ml_engine_bridge',to:'Détecteur',msg:'Pass 2 results: 37 alarms, session 2 new',step:5,color:'#e87a3a'},
+    {from:'Détecteur',to:'Correcteur',msg:'CRITICAL confirmed: 150.183.249.110 → BLOCK',step:6,color:'#e05252'},
+    {from:'Correcteur',to:'AWS SG',msg:'Boto3: add_inbound_rule port=22 DENY',step:6,color:'#e05a8a'},
+    {from:'Rapporteur',to:'S3',msg:'report_20260412_063627.json → uploaded',step:7,color:'#3ddc84'},
+    {from:'Rapporteur',to:'memory.py',msg:'long_term_memory.json updated, 8 sessions',step:7,color:'#3ddc84'},
+  ];
+  const visible=interactions.filter(x=>stepStatus[x.step]==='done'||activeStep>=x.step);
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:5}},
+    visible.length===0&&React.createElement('div',{style:{color:'#2a4a2a',fontSize:9,textAlign:'center',padding:'40px 0'}},'Agent messages appear as pipeline runs...'),
+    visible.map((x,i)=>React.createElement('div',{key:i,style:{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:4,background:'#080f08',border:'1px solid #131e13',animation:'slideIn 0.3s ease'}},
+      React.createElement('span',{style:{fontSize:9,fontWeight:600,color:x.color,minWidth:90}},x.from),
+      React.createElement('div',{style:{flex:1,height:1,background:x.color,opacity:0.4,position:'relative'}},
+        React.createElement('div',{style:{position:'absolute',right:-4,top:-4,fontSize:8,color:x.color}})
+      ),
+      React.createElement('span',{style:{fontSize:8,color:'#3a5a3a',minWidth:70,textAlign:'center',fontFamily:'monospace',background:'#0d160d',padding:'2px 6px',borderRadius:3,border:`1px solid ${x.color}30`}},x.to),
+      React.createElement('span',{style:{fontSize:9,color:'#5a8a6a',flex:2}},x.msg)
+    ))
+  );
+}
+
+function PipelinePg(){
+  const{activeStep,stepStatus,running,logs,logStep,startRun,reset}=usePipelineState();
+  const[expanded,setExpanded]=useState(null);
+  const[view,setView]=useState('pipeline');
+  const toggleExpand=idx=>setExpanded(e=>e===idx?null:idx);
+
+  const doneCount=Object.values(stepStatus).filter(v=>v==='done').length;
+  const pct=Math.round(doneCount/PIPELINE_STEPS.length*100);
+
+  return React.createElement('div',{style:{padding:'14px 16px',height:'100%',overflowY:'auto',display:'flex',flexDirection:'column',gap:12}},
+    // Top bar
+    React.createElement('div',{style:{display:'flex',gap:10,alignItems:'stretch'}},
+      React.createElement('div',{style:{flex:1,background:'#0f160f',border:'1px solid #1a2a1a',borderRadius:8,padding:'10px 16px',display:'flex',alignItems:'center',gap:16}},
+        React.createElement('div',null,
+          React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginBottom:3,letterSpacing:'0.08em'}},'PIPELINE PROGRESS'),
+          React.createElement('div',{style:{width:220,height:4,background:'#151f15',borderRadius:2,overflow:'hidden'}},
+            React.createElement('div',{style:{height:'100%',width:`${pct}%`,background:'#3ddc84',borderRadius:2,transition:'width 0.4s'}})
+          ),
+        ),
+        React.createElement('div',{style:{fontSize:22,fontWeight:600,color:'#3ddc84',fontFamily:'monospace'}},`${pct}%`),
+        React.createElement('div',{style:{fontSize:9,color:'#3a5a3a'}},`${doneCount} / ${PIPELINE_STEPS.length} steps`),
+        running&&React.createElement('div',{style:{display:'flex',alignItems:'center',gap:5}},
+          React.createElement('div',{style:{width:6,height:6,borderRadius:'50%',background:'#3ddc84',animation:'pulse 0.8s infinite'}}),
+          React.createElement('span',{style:{fontSize:9,color:'#3ddc84',letterSpacing:'0.1em'}},'RUNNING')
+        )
+      ),
+      React.createElement('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+        React.createElement('button',{onClick:startRun,disabled:running,style:{padding:'8px 20px',borderRadius:5,border:'1px solid #2a5a2a',background:running?'#0d160d':'#0a2a0a',color:running?'#2a5a2a':'#3ddc84',fontSize:10,cursor:running?'not-allowed':'pointer',fontFamily:'monospace',fontWeight:600,letterSpacing:'0.08em'}},running?'RUNNING...':'▶ RUN PIPELINE'),
+        React.createElement('button',{onClick:reset,style:{padding:'8px 14px',borderRadius:5,border:'1px solid #1a2a1a',background:'#0d120d',color:'#4a6a4a',fontSize:10,cursor:'pointer',fontFamily:'monospace'}},'↺ RESET')
+      )
+    ),
+    // Sub-tab bar
+    React.createElement('div',{style:{display:'flex',gap:4,borderBottom:'1px solid #1a2a1a'}},
+      [{id:'pipeline',l:'Pipeline Steps'},{id:'logs',l:'Log Terminal'},{id:'agents',l:'Agent Interactions'}].map(t=>
+        React.createElement('button',{key:t.id,onClick:()=>setView(t.id),style:{padding:'6px 14px',border:'none',borderBottom:view===t.id?'2px solid #3ddc84':'2px solid transparent',background:'none',color:view===t.id?'#3ddc84':'#3a5a3a',fontSize:10,cursor:'pointer',fontFamily:'monospace',letterSpacing:'0.04em',fontWeight:view===t.id?600:400,marginBottom:-1}},t.l)
+      )
+    ),
+    // Content
+    view==='pipeline'&&React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:0}},
+      // Left col: steps 1-4
+      React.createElement('div',{style:{paddingRight:12,borderRight:'1px solid #131e13'}},
+        React.createElement('div',{style:{fontSize:9,color:'#2a4a2a',marginBottom:10,letterSpacing:'0.08em'}},'INGESTION → DETECTION'),
+        PIPELINE_STEPS.slice(0,4).map((s,i)=>React.createElement(PipelineStepCard,{key:s.id,s,
+          isActive:activeStep===i&&running,isDone:stepStatus[i]==='done',isPast:i<activeStep,
+          onClick:()=>toggleExpand(i),expanded:expanded===i,
+          logLines:i===logStep?PIPELINE_STEPS[i].logLines.slice(0,logs.filter(l=>l.step===i).length):stepStatus[i]==='done'?PIPELINE_STEPS[i].logLines:[]
+        }))
+      ),
+      // Right col: steps 5-8
+      React.createElement('div',{style:{paddingLeft:12}},
+        React.createElement('div',{style:{fontSize:9,color:'#2a4a2a',marginBottom:10,letterSpacing:'0.08em'}},'AI REASONING → MEMORY'),
+        PIPELINE_STEPS.slice(4).map((s,i)=>React.createElement(PipelineStepCard,{key:s.id,s,
+          isActive:activeStep===i+4&&running,isDone:stepStatus[i+4]==='done',isPast:i+4<activeStep,
+          onClick:()=>toggleExpand(i+4),expanded:expanded===i+4,
+          logLines:i+4===logStep?PIPELINE_STEPS[i+4].logLines.slice(0,logs.filter(l=>l.step===i+4).length):stepStatus[i+4]==='done'?PIPELINE_STEPS[i+4].logLines:[]
+        }))
+      )
+    ),
+    view==='logs'&&React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:9,color:'#2a4a2a',marginBottom:8}},`${logs.length} log lines — color-coded by pipeline stage`),
+      React.createElement(PipelineLogTerminal,{logs,running})
+    ),
+    view==='agents'&&React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:9,color:'#2a4a2a',marginBottom:10}},'Agent-to-agent + agent-to-system messages (appear as pipeline progresses)'),
+      React.createElement(AgentInteractionPanel,{activeStep,stepStatus})
+    )
+  );
+}
+// ─── end page 3 ───────────────────────────────────────────────────────────────
+
+// ─── LAYOUT ───────────────────────────────────────────────────────────────────
+const NAV=[
+  {id:'overview',label:'Overview',sub:'System health'},
+  {id:'ai',label:'AI Control',sub:'Decisions & memory'},
+  {id:'pipeline',label:'Pipeline',sub:'Process view'},
+];
+
+function Layout({children,page,setPage,onReplay,backendStatus,lastPing,criticalFlash}){
+  const time=useClock();
+  const bsColor=backendStatus==='connected'?'#3ddc84':backendStatus==='checking'?'#f5a623':'#4a5a4a';
+  const bsLabel=backendStatus==='connected'?'API LIVE':backendStatus==='checking'?'CHECKING...':'MOCK DATA';
+  return React.createElement('div',{style:{display:'flex',height:'100vh',width:'100vw',overflow:'hidden',background:'#0a0e0a',fontFamily:'"JetBrains Mono",monospace',outline:criticalFlash?'2px solid #e05252':'none',transition:'outline 0.2s'}},
+    // Sidebar
+    React.createElement('aside',{style:{width:210,flexShrink:0,background:'#0d120d',borderRight:'1px solid #1a2a1a',display:'flex',flexDirection:'column'}},
+      // Logo
+      React.createElement('div',{style:{padding:'18px 16px 14px',borderBottom:'1px solid #1a2a1a'}},
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          React.createElement('div',{style:{width:26,height:26,borderRadius:6,background:'#0d2a1a',border:'1px solid #2a5a3a',display:'flex',alignItems:'center',justifyContent:'center'}},
+            React.createElement('svg',{width:13,height:13,viewBox:'0 0 14 14',fill:'none'},
+              React.createElement('path',{d:'M7 1L13 4.5V9.5L7 13L1 9.5V4.5L7 1Z',stroke:'#3ddc84',strokeWidth:1.2}),
+              React.createElement('circle',{cx:7,cy:7,r:2,fill:'#3ddc84'})
+            )
+          ),
+          React.createElement('div',null,
+            React.createElement('div',{style:{fontSize:11,fontWeight:600,color:'#e8ffe8',letterSpacing:'0.08em'}},'IDPS'),
+            React.createElement('div',{style:{fontSize:9,color:'#4a7a4a',letterSpacing:'0.06em'}},'HYBRID v4')
+          )
+        )
+      ),
+      // Nav
+      React.createElement('nav',{style:{padding:'10px 8px',flex:1}},
+        NAV.map(item=>{
+          const act=page===item.id;
+          return React.createElement('button',{key:item.id,onClick:()=>setPage(item.id),style:{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 10px',marginBottom:2,borderRadius:6,border:'none',cursor:'pointer',textAlign:'left',background:act?'#1a2e1a':'transparent',color:act?'#3ddc84':'#4a6a4a',borderLeft:act?'2px solid #3ddc84':'2px solid transparent',transition:'all 0.15s'}},
+            React.createElement('div',null,
+              React.createElement('div',{style:{fontSize:12,fontWeight:act?600:400,letterSpacing:'0.04em'}},item.label),
+              React.createElement('div',{style:{fontSize:9,color:act?'#4a9a5a':'#3a5a3a',marginTop:1}},item.sub)
+            )
+          );
+        })
+      ),
+      // Clock
+      React.createElement('div',{style:{padding:'12px 16px',borderTop:'1px solid #1a2a1a'}},
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:6}},
+          React.createElement('div',{style:{width:7,height:7,borderRadius:'50%',background:'#3ddc84',animation:'pulse 2s infinite'}}),
+          React.createElement('span',{style:{fontSize:9,color:'#3ddc84',letterSpacing:'0.1em'}},'LIVE')
+        ),
+        React.createElement('div',{style:{fontSize:18,fontWeight:500,color:'#e8ffe8',letterSpacing:'0.08em',fontFamily:'monospace'}},time.toTimeString().slice(0,8)),
+        React.createElement('div',{style:{fontSize:9,color:'#3a5a3a',marginTop:2}},time.toDateString()),
+        React.createElement('div',{style:{marginTop:8,fontSize:9,color:'#2a4a2a'}},'CrewAI · AWS · 6-agent')
+      )
+    ),
+    // Main
+    React.createElement('div',{style:{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}},
+      // Topbar
+      React.createElement('header',{style:{height:42,flexShrink:0,borderBottom:'1px solid #1a2a1a',background:'#0d120d',display:'flex',alignItems:'center',padding:'0 20px',justifyContent:'space-between'}},
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          React.createElement('span',{style:{fontSize:11,color:'#3a5a3a'}},page==='overview'?'Main Overview':page==='ai'?'AI Control Panel':'Pipeline View'),
+          React.createElement('span',{style:{fontSize:11,color:'#2a4a2a'}},'·'),
+          React.createElement('span',{style:{fontSize:10,color:'#2a4a2a'}},'Hybrid IDPS')
+        ),
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:12}},
+          // Backend status
+          React.createElement('div',{style:{display:'flex',alignItems:'center',gap:5}},
+            React.createElement('div',{style:{width:6,height:6,borderRadius:'50%',background:bsColor,animation:backendStatus==='checking'?'pulse 0.8s infinite':undefined}}),
+            React.createElement('span',{style:{fontSize:9,color:bsColor,letterSpacing:'0.08em'}},bsLabel),
+            lastPing&&React.createElement('span',{style:{fontSize:8,color:'#2a4a2a'}},lastPing)
+          ),
+          React.createElement('div',{style:{width:1,height:14,background:'#1a2a1a'}}),
+          // Session replay button
+          React.createElement('button',{onClick:onReplay,style:{padding:'3px 10px',borderRadius:4,border:'1px solid #1a3a2a',background:'#0a160a',color:'#4a8a5a',fontSize:9,cursor:'pointer',fontFamily:'monospace',letterSpacing:'0.06em'}},'⟳ REPLAY'),
+          React.createElement('div',{style:{width:1,height:14,background:'#1a2a1a'}}),
+          React.createElement('span',{style:{fontSize:9,color:'#3a5a3a'}},'12s refresh'),
+          React.createElement('div',{style:{width:1,height:14,background:'#1a2a1a'}}),
+          React.createElement('div',{style:{display:'flex',alignItems:'center',gap:5}},
+            React.createElement('div',{style:{width:6,height:6,borderRadius:'50%',background:'#3ddc84'}}),
+            React.createElement('span',{style:{fontSize:9,color:'#3ddc84',letterSpacing:'0.08em'}},'ALL SYSTEMS NOMINAL')
+          )
+        )
+      ),
+      // Content
+      React.createElement('div',{style:{flex:1,overflow:'auto'}},children)
+    )
+  );
+}
+
+// ─── ROOT APP ─────────────────────────────────────────────────────────────────
+function App(){
+  const[page,setPage]=useState('overview');
+  const[showReplay,setShowReplay]=useState(false);
+  const{data:kpis}=useKPIs();
+  const{toasts,criticalFlash,dismiss}=useAlertSystem(kpis);
+  const{status:backendStatus,lastPing}=useBackendStatus();
+
+  const content=page==='overview'?React.createElement(OverviewPage):page==='ai'?React.createElement(AIPage):React.createElement(PipelinePg);
+  return React.createElement(React.Fragment,null,
+    React.createElement(Layout,{page,setPage,onReplay:()=>setShowReplay(true),backendStatus,lastPing,criticalFlash},content),
+    React.createElement(ToastStack,{toasts,dismiss}),
+    criticalFlash&&React.createElement(CriticalFlashOverlay,{active:criticalFlash}),
+    showReplay&&React.createElement(SessionReplayModal,{onClose:()=>setShowReplay(false)})
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>

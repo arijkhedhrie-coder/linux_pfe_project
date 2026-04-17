@@ -29,9 +29,10 @@ import io
 import json
 import logging
 import os
+import inspect
+import re
 import sys
 import time
-import inspect
 from datetime import datetime
 from typing import Any
 
@@ -100,22 +101,12 @@ try:
 except Exception as e:
     LOG.warning("Patch ChromaDB ignoré: %s: %s", type(e).__name__, e)
 
-try:
-    from crewai.memory.storage.rag_storage import RAGStorage
-
-    _orig_rag_init = RAGStorage.__init__
-
-    def _patched_rag_init(self, *args, **kwargs):
-        kwargs["embedder_config"] = {
-            "provider": "ollama",
-            "config": {"model": "nomic-embed-text", "base_url": "http://localhost:11434"},
-        }
-        return _orig_rag_init(self, *args, **kwargs)
-
-    RAGStorage.__init__ = _patched_rag_init
-    LOG.info("Patch RAGStorage Ollama appliqué")
-except Exception as e:
-    LOG.warning("Patch RAGStorage ignoré: %s: %s", type(e).__name__, e)
+# RAGStorage patch disabled — crewai 1.x+ has different memory storage architecture
+# try:
+#     from crewai.memory.storage.rag_storage import RAGStorage
+#     ...
+# except Exception as e:
+#     LOG.warning("Patch RAGStorage ignoré: %s: %s", type(e).__name__, e)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Imports métier
@@ -298,22 +289,14 @@ except Exception as e:
 
 if CREWAI_AVAILABLE:
     from src.agents.agents import (
-        collector_agent,
-        analyst_agent,
-        detector_agent,
-        reporter_agent,
         orchestrator_agent,
+        outil_alarme,
         outil_correctif,
         outil_rapport,
         llm as groq_llm,
     )
     from src.agents.tasks import (
-        tache_collecte,
-        tache_analyse,
         tache_dynamic_config,
-        tache_rapport,
-        creer_tache_detection,
-        creer_tache_correction,
     )
 
 
@@ -525,6 +508,134 @@ def _install_llm_throttle() -> None:
     groq_llm.__class__.call = _throttled_call  # type: ignore[attr-defined]
 
 
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_usable_ip(ip: Any) -> bool:
+    ip_str = str(ip or "").strip()
+    if ip_str.lower() in {"", "n/a", "none", "nan", "multiple", "unknown_ip"}:
+        return False
+    return bool(re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", ip_str))
+
+
+def _alarm_signature(alarmes: Any) -> str:
+    if not isinstance(alarmes, list):
+        return str(alarmes)
+
+    normalized: list[Any] = []
+    for alarme in alarmes:
+        if isinstance(alarme, dict):
+            normalized.append({k: alarme.get(k) for k in sorted(alarme)})
+        else:
+            normalized.append(str(alarme))
+    return json.dumps(normalized, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _build_deterministic_analysis(
+    metrics_summary: dict[str, Any],
+    agent_inputs: dict[str, Any],
+    alarmes_pass1: Any,
+    alarmes_final: Any,
+    pass2_ran: bool,
+    dynamic_config: DynamicConfig,
+) -> str:
+    pattern = str(metrics_summary.get("attack_pattern", "unknown")).replace("_", " ")
+    health = _as_float(metrics_summary.get("health_score"), 0.0)
+    status = str(metrics_summary.get("alert_status", "UNKNOWN")).upper()
+    entropy = _as_float(metrics_summary.get("ip_entropy"), 0.0)
+    unique_ips = _as_int(metrics_summary.get("unique_attacking_ips"), 0)
+    velocity = _as_float(metrics_summary.get("attack_velocity"), 0.0)
+    night_ratio = _as_float(metrics_summary.get("night_ratio"), 0.0)
+    ip_principale = str(agent_inputs.get("ip_principale", "N/A") or "N/A")
+    nb_anomalies = _as_int(agent_inputs.get("nb_anomalies"), 0)
+
+    confidence = "high"
+    if health >= 99 and status == "HIGH":
+        confidence = "very high"
+    elif health < 80 or status not in {"HIGH", "MEDIUM"}:
+        confidence = "medium"
+
+    automated = velocity >= 100 or (unique_ips <= 5 and entropy <= 1.0)
+    if automated:
+        line2 = (
+            "Likely automated; evidence: "
+            f"low IP diversity ({unique_ips}), low entropy ({entropy:.3f}), "
+            f"high request volume ({velocity:.1f}), and repeated failures tied to {ip_principale}."
+        )
+    else:
+        line2 = (
+            "Possibly human-driven or mixed; evidence is weaker because "
+            f"velocity={velocity:.1f}, entropy={entropy:.3f}, and unique_ips={unique_ips} do not show a clean bot pattern."
+        )
+
+    pass2_changed = _alarm_signature(alarmes_final) != _alarm_signature(alarmes_pass1)
+    if pass2_ran:
+        if pass2_changed:
+            line3 = (
+                "Yes; Pass 2 ran and changed detection because the orchestrator adjusted thresholds "
+                f"({dynamic_config.summary()})."
+            )
+        else:
+            line3 = (
+                "Yes; Pass 2 ran but detection stayed effectively the same after the threshold review."
+            )
+    else:
+        line3 = (
+            "No; Pass 2 did not run because the orchestrator kept the default thresholds and no override was justified."
+        )
+
+    risk_ip = ip_principale if _is_usable_ip(ip_principale) else "the same source"
+    line4 = (
+        "Top next-2h risks: sustained credential abuse from "
+        f"{risk_ip}, and service or alert-noise degradation from {nb_anomalies} ongoing anomaly signal(s) "
+        f"with night_ratio={night_ratio:.3f}."
+    )
+
+    lines = [
+        f"Main threat: {pattern} with {confidence} confidence (health={health:.1f}%, status={status}).",
+        line2,
+        line3,
+        line4,
+    ]
+    return "\n".join(lines)
+
+
+def _build_alarm_payload(nb_anomalies: int, ip_principale: str) -> str:
+    if nb_anomalies <= 0:
+        return "Aucune alarme critique"
+    ip_part = ip_principale if _is_usable_ip(ip_principale) else "unknown_ip"
+    return f"ANOMALIE nb={nb_anomalies} ip={ip_part} severite=AVERTISSEMENT"
+
+
+def _run_safe_corrective_action(
+    nb_anomalies: int,
+    ip_principale: str,
+    alarmes_final: Any,
+) -> str:
+    has_critical_alarm = any(
+        isinstance(alarme, dict) and str(alarme.get("severite", "")).upper() == "CRITIQUE"
+        for alarme in (alarmes_final if isinstance(alarmes_final, list) else [])
+    )
+
+    if nb_anomalies > 0 and _is_usable_ip(ip_principale) and has_critical_alarm:
+        return outil_correctif._run(
+            anomalie_json=f"BLOCAGE IP {ip_principale} brute-force SSH critique"
+        )
+
+    return outil_correctif._run(anomalie_json="SURVEILLANCE NORMALE - aucune action")
+
+
 def _run_dynamic_config(log: SessionLogger, agent_inputs: dict) -> DynamicConfig:
     if not CREWAI_AVAILABLE:
         log.warning("crewai", f"CrewAI indisponible: {_CREWAI_IMPORT_ERR}")
@@ -641,48 +752,33 @@ def main() -> None:
         else:
             nb_anomalies = int(str(agent_inputs.get("nb_anomalies", "0") or "0"))
             ip_principale = str(agent_inputs.get("ip_principale", "N/A") or "N/A")
-            alarmes_resumees = str(agent_inputs.get("alarmes_resumees", "Aucune") or "Aucune")
-
-            t_detection = creer_tache_detection(nb_anomalies, ip_principale, alarmes_resumees)
-
-            # Crew A — analyse
-            analysis_crew = Crew(
-                agents=[collector_agent, analyst_agent, detector_agent],
-                tasks=[tache_collecte, tache_analyse, t_detection],
-                process=Process.sequential,
-                memory=False,
-                verbose=True,
+            analysis_text = _build_deterministic_analysis(
+                metrics_summary=metrics_summary,
+                agent_inputs=agent_inputs,
+                alarmes_pass1=alarmes_pass1,
+                alarmes_final=alarmes_final,
+                pass2_ran=pass2_ran,
+                dynamic_config=dynamic_config,
             )
+            parts.append(f"[ANALYST_RULES]\n{analysis_text}")
 
             try:
-                crew_out = analysis_crew.kickoff(inputs=agent_inputs)
-                parts.append(str(crew_out))
+                alarme_result = outil_alarme._run(
+                    alarmes_json=_build_alarm_payload(nb_anomalies, ip_principale)
+                )
+                parts.append(f"[ALARM_TOOL]\n{alarme_result}")
             except Exception as e:
-                log.warning("analysis_crew", f"{type(e).__name__}: {e}")
-                parts.append(f"[PARTIAL] analysis_crew: {type(e).__name__}: {e}")
-
-            # Crew B — rapport (résilience)
-            report_crew = Crew(
-                agents=[reporter_agent],
-                tasks=[tache_rapport],
-                process=Process.sequential,
-                memory=False,
-                verbose=True,
-            )
-            try:
-                report_out = report_crew.kickoff(inputs=agent_inputs)
-                parts.append(f"[REPORT_AGENT]\n{report_out}")
-            except Exception as e:
-                log.warning("report_crew", f"{type(e).__name__}: {e}")
-                parts.append(f"[REPORT_AGENT][WARN] {type(e).__name__}: {e}")
+                log.warning("alarm_tool", f"{type(e).__name__}: {e}")
+                parts.append(f"[ALARM_TOOL][WARN] {type(e).__name__}: {e}")
+            # CrewAI analysis/report execution is intentionally skipped here.
+            # The orchestrator still runs above; downstream actions below use validated direct tool calls.
 
             # Filet outil correctif
             try:
-                _ = creer_tache_correction(nb_anomalies, ip_principale)  # garde cohérence si tu relies sur la factory
-                corr_in = f"BLOCAGE IP {ip_principale} brute-force SSH critique"
-                corr = outil_correctif._run(anomalie_json=corr_in)
+                corr = _run_safe_corrective_action(nb_anomalies, ip_principale, alarmes_final)
                 parts.append(f"[CORRECTIVE_TOOL]\n{corr}")
             except Exception as e:
+                log.warning("corrective_tool", f"{type(e).__name__}: {e}")
                 parts.append(f"[CORRECTIVE_TOOL][WARN] {type(e).__name__}: {e}")
 
             # Filet outil rapport
@@ -702,6 +798,7 @@ def main() -> None:
                 rep = outil_rapport._run(rapport_json=report_payload)
                 parts.append(f"[REPORT_TOOL]\n{rep}")
             except Exception as e:
+                log.warning("report_tool", f"{type(e).__name__}: {e}")
                 parts.append(f"[REPORT_TOOL][WARN] {type(e).__name__}: {e}")
 
             resultat = "\n\n".join(parts)
@@ -719,7 +816,9 @@ def main() -> None:
             log.warning("save_local", f"{type(e).__name__}: {e}")
 
         try:
-            uploader_vers_s3()
+            uploader_vers_s3(
+                include_logs_clean=os.getenv("UPLOAD_LOGS_CLEAN", "0").strip().lower() in {"1", "true", "yes"},
+            )
         except Exception as e:
             log.warning("upload_s3", f"{type(e).__name__}: {e}")
 

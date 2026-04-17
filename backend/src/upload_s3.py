@@ -98,6 +98,7 @@ def uploader_vers_s3(
     *,
     out_dir: str = "output",
     prefix: str = "processed/",
+    include_logs_clean: bool = True,
     parallelism: int = 4,
     retries: int = 3,
     backoff_base_s: float = 1.0,
@@ -116,11 +117,14 @@ def uploader_vers_s3(
         return {"status": "SKIPPED", "reason": "bucket_missing", "details": []}
 
     files = [
-        (os.path.join(out_dir, "logs_clean.csv"), f"{prefix}logs_clean.csv"),
         (os.path.join(out_dir, "erreurs_par_heure.csv"), f"{prefix}erreurs_par_heure.csv"),
         (os.path.join(out_dir, "tentatives_par_ip.csv"), f"{prefix}tentatives_par_ip.csv"),
         (os.path.join(out_dir, "events_par_service.csv"), f"{prefix}events_par_service.csv"),
     ]
+    if include_logs_clean:
+        files.insert(0, (os.path.join(out_dir, "logs_clean.csv"), f"{prefix}logs_clean.csv"))
+    else:
+        logger.info("Upload S3: logs_clean.csv ignorÃ© pour Ã©viter un blocage de fin de pipeline")
     if extra_files:
         files.extend(list(extra_files))
 

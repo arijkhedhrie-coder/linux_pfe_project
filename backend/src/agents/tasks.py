@@ -1,4 +1,26 @@
-# src/agents/tasks.py — FINAL (token-minimized + conditional detection/correction)
+# src/agents/tasks.py — FIXED v2
+#
+# Fix 1 — declencher_alarme Groq crash (tool_use_failed)
+#   ROOT CAUSE: when ip_ok=False, the task passed {alarmes_resumees} directly
+#   as alarmes_json. That expands to a large JSON string that Groq truncates
+#   mid-token, breaking the tool call schema. The LLM then serializes it as
+#   an array instead of a string → GroqException tool_use_failed.
+#   FIX: never pass raw alarm JSON into declencher_alarme. Pass a short
+#   human-readable summary string that the LLM can copy verbatim.
+#
+# Fix 2 — analyser_logs receiving the wrong input (TOTAL SUSPECTS: 0)
+#   ROOT CAUSE: tache_analyse used {alarmes_resumees} which is a compact
+#   agent-input string like "192.168.100.20(0.63,ANOMALIE)". The Analyste
+#   passed THAT string to analyser_logs instead of using its own context.
+#   FIX: tache_analyse no longer mentions analyser_logs at all. It receives
+#   all real metrics directly as template variables and writes 4 lines of
+#   analysis from those — no tool call needed.
+#
+# Fix 3 — tache_collecte looping (lister_logs_s3 called 4x)
+#   ROOT CAUSE: agent hits max_iter=1 on the collect task because the task
+#   description says "Call lister_logs_s3" which the agent interprets as a
+#   multi-step loop. Added explicit "Call it ONCE. Stop after one call."
+#   FIX: added hard stop instruction + max_iter guard note.
 
 from crewai import Task
 from src.agents.agents import (
@@ -6,8 +28,9 @@ from src.agents.agents import (
     corrector_agent, orchestrator_agent, reporter_agent,
 )
 
+
 # ════════════════════════════════════════════════════════════════════════════
-# TASK 0 — DYNAMIC CONFIG (point fort: JSON strict + utile pour Pass 2)
+# TASK 0 — DYNAMIC CONFIG
 # ════════════════════════════════════════════════════════════════════════════
 tache_dynamic_config = Task(
     description=(
@@ -35,11 +58,18 @@ tache_dynamic_config = Task(
     agent=orchestrator_agent,
 )
 
+
 # ════════════════════════════════════════════════════════════════════════════
-# TASK 1 — COLLECT (point fort: sortie ultra courte)
+# TASK 1 — COLLECT
+# FIX 3: added "Call it ONCE. Do not repeat." to stop the 4x loop.
 # ════════════════════════════════════════════════════════════════════════════
 tache_collecte = Task(
-    description="Server: {serveur_nom}. Call lister_logs_s3 with prefix=\"processed/\".",
+    description=(
+        "Server: {serveur_nom}.\n"
+        "Call lister_logs_s3 ONCE with prefix=\"processed/\".\n"
+        "Do NOT call lire_logs_s3. Do NOT call any other tool.\n"
+        "After you receive the file list, immediately write your final answer."
+    ),
     expected_output=(
         "3 lines:\n"
         "COUNT:<n>\n"
@@ -49,44 +79,70 @@ tache_collecte = Task(
     agent=collector_agent,
 )
 
+
 # ════════════════════════════════════════════════════════════════════════════
-# TASK 2 — ANALYSE (point fort: 4 lignes max)
+# TASK 2 — ANALYSE
+# FIX 2: removed analyser_logs tool call from this task entirely.
+# The analyste now works purely from the injected metrics variables —
+# no tool call, no wrong-input loop, no cached "SUSPECTS: 0" result.
 # ════════════════════════════════════════════════════════════════════════════
 tache_analyse = Task(
     description=(
-        "Interpret detection results.\n"
-        "health={health_score}% status={alert_status} pattern={attack_pattern} "
-        "entropy={ip_entropy} ips={unique_attacking_ips} velocity={attack_velocity} "
-        "spike={is_velocity_spike} night={night_ratio}\n"
-        "alarms={alarmes_resumees} pass2={pass2_ran} config={dynamic_config_summary}\n\n"
-        "Write 4 lines:\n"
-        "1. Main threat type and confidence\n"
-        "2. Automated or human-driven? Evidence?\n"
-        "3. Did Pass 2 change detection vs Pass 1?\n"
-        "4. Top 2 risks next 2 hours"
+        "You are the log analyst. Interpret the detection results below.\n"
+        "DO NOT call any tool. Write your analysis directly from these facts.\n\n"
+        "DETECTION FACTS:\n"
+        "  health={health_score}%  status={alert_status}  pattern={attack_pattern}\n"
+        "  entropy={ip_entropy} bits  unique_ips={unique_attacking_ips}\n"
+        "  velocity={attack_velocity}  velocity_spike={is_velocity_spike}\n"
+        "  night_ratio={night_ratio}\n"
+        "  alarms={alarmes_resumees}\n"
+        "  pass2_ran={pass2_ran}  agent_config={dynamic_config_summary}\n\n"
+        "Write EXACTLY 4 lines, no headers, no bullet points:\n"
+        "1. Main threat type and confidence level\n"
+        "2. Automated or human-driven attack? What is the evidence?\n"
+        "3. Did Pass 2 run and change detection vs Pass 1? (yes/no + reason)\n"
+        "4. Top 2 risks in the next 2 hours"
     ),
-    expected_output="4 lines.",
+    expected_output="Exactly 4 lines of analysis. No tool calls.",
     agent=analyst_agent,
 )
 
+
 # ════════════════════════════════════════════════════════════════════════════
-# TASK 3 — DETECT (fix binôme: conditionnel pour éviter faux positifs)
-# - On garde ton format Groq-safe (tool call dans description, texte dans expected_output)
-# - On fournit une factory à utiliser dans main.py pour injecter nb_anomalies/ip réels
+# TASK 3 — DETECT
+# FIX 1: the no-usable-IP branch now passes a short plain string to
+# declencher_alarme instead of {alarmes_resumees} (which expands to a
+# large JSON blob that Groq truncates → tool_use_failed crash).
 # ════════════════════════════════════════════════════════════════════════════
+
 def _ip_valide(ip: str) -> bool:
     ip = (ip or "").strip()
     return bool(ip) and ip.lower() not in {"n/a", "none", "nan", "multiple"} and "." in ip
+
+
+def _build_alarme_summary(nb_anomalies: int, ip_principale: str, alarmes_resumees: str) -> str:
+    """
+    Build a SHORT plain-string summary safe to pass as alarmes_json.
+    NEVER uses alarmes_resumees — may be a raw JSON array which breaks Groq.
+    Always built from clean primitive values only (int + ip string).
+    Max ~60 chars — safely under Groq tool call schema limit.
+    """
+    ip_part = ip_principale if _ip_valide(ip_principale) else "unknown_ip"
+    return f"ANOMALIE nb={nb_anomalies} ip={ip_part} severite=AVERTISSEMENT"
 
 
 def creer_tache_detection(nb_anomalies: int, ip_principale: str, alarmes_resumees: str) -> Task:
     ip_ok = _ip_valide(ip_principale)
 
     if nb_anomalies > 0 and ip_ok:
+        # Normal confirmed-threat path — alarmes_resumees is already compact here
+        # (it comes from get_agent_inputs which caps it at 200 chars)
+        alarme_str = _build_alarme_summary(nb_anomalies, ip_principale, alarmes_resumees)
         desc = (
-            "Confirmed threats. anomalies={nb_anomalies} ip={ip_principale}\n"
-            "alarms={alarmes_resumees}\n\n"
-            "Call declencher_alarme with alarmes_json={alarmes_resumees}."
+            f"Confirmed threats detected. anomalies={nb_anomalies} ip={ip_principale}\n"
+            f"alarms={alarmes_resumees}\n\n"
+            f"Call declencher_alarme ONCE with alarmes_json=\"{alarme_str}\".\n"
+            "Do not modify the string. Do not pass a JSON array."
         )
         expected = (
             "4 lines after tool call:\n"
@@ -95,12 +151,16 @@ def creer_tache_detection(nb_anomalies: int, ip_principale: str, alarmes_resumee
             "3. Security score 0-100\n"
             "4. BLOCK / WATCHLIST / MONITOR"
         )
+
     elif nb_anomalies > 0 and not ip_ok:
-        # anomalies réelles mais IP pas exploitable -> on reste en avertissement/monitoring
+        # FIX 1 — was: alarmes_json={alarmes_resumees}  →  large JSON blob → crash
+        # Now: short static string, safe for Groq tool schema
+        alarme_str = _build_alarme_summary(nb_anomalies, ip_principale, alarmes_resumees)
         desc = (
-            "Suspicious activity but no usable IP.\n"
-            "anomalies={nb_anomalies} ip={ip_principale} alarms={alarmes_resumees}\n\n"
-            "Call declencher_alarme with alarmes_json={alarmes_resumees}."
+            f"Suspicious activity detected but no usable IP address.\n"
+            f"anomalies={nb_anomalies}\n\n"
+            f"Call declencher_alarme ONCE with alarmes_json=\"{alarme_str}\".\n"
+            "Do not modify the string. Do not pass a JSON array."
         )
         expected = (
             "3 lines after tool call:\n"
@@ -108,11 +168,13 @@ def creer_tache_detection(nb_anomalies: int, ip_principale: str, alarmes_resumee
             "2. Security score 0-100\n"
             "3. MONITOR"
         )
+
     else:
-        # cas normal: ne pas induire une attaque
+        # Clean session — no anomalies
         desc = (
-            "No critical anomaly. nb_anomalies=0.\n"
-            "Call declencher_alarme with alarmes_json=\"Aucune alarme critique\"."
+            "No critical anomaly detected. nb_anomalies=0.\n\n"
+            "Call declencher_alarme ONCE with alarmes_json=\"Aucune alarme critique\".\n"
+            "Do not modify the string."
         )
         expected = (
             "3 lines after tool call:\n"
@@ -124,13 +186,16 @@ def creer_tache_detection(nb_anomalies: int, ip_principale: str, alarmes_resumee
     return Task(description=desc, expected_output=expected, agent=detector_agent)
 
 
-# Fallback statique (si ton code n'appelle pas encore creer_tache_detection)
+# Fallback statique (rétro-compat si creer_tache_detection n'est pas appelé)
 tache_detection = Task(
     description=(
         "Triage threats.\n"
-        "anomalies={nb_anomalies} ip={ip_principale} alarms={alarmes_resumees}\n\n"
-        "If nb_anomalies==0: Call declencher_alarme with alarmes_json=\"Aucune alarme critique\".\n"
-        "Else: Call declencher_alarme with alarmes_json={alarmes_resumees}."
+        "anomalies={nb_anomalies} ip={ip_principale}\n\n"
+        "If nb_anomalies==0:\n"
+        "  Call declencher_alarme ONCE with alarmes_json=\"Aucune alarme critique\".\n"
+        "Else:\n"
+        "  Call declencher_alarme ONCE with alarmes_json=\"ANOMALIE nb={nb_anomalies} ip={ip_principale}\".\n"
+        "Do not pass a JSON array. Pass a plain string only."
     ),
     expected_output=(
         "3-4 lines after tool call:\n"
@@ -139,8 +204,9 @@ tache_detection = Task(
     agent=detector_agent,
 )
 
+
 # ════════════════════════════════════════════════════════════════════════════
-# TASK 4 — CORRECT (fix binôme: conditionnel, en gardant Groq-safe)
+# TASK 4 — CORRECT
 # ════════════════════════════════════════════════════════════════════════════
 def creer_tache_correction(nb_anomalies: int, ip_principale: str) -> Task:
     ip_ok = _ip_valide(ip_principale)
@@ -163,7 +229,11 @@ def creer_tache_correction(nb_anomalies: int, ip_principale: str) -> Task:
             "Do not add any text before or after the tool call."
         )
 
-    return Task(description=desc, expected_output="Tool call only. No extra prose.", agent=corrector_agent)
+    return Task(
+        description=desc,
+        expected_output="Tool call only. No extra prose.",
+        agent=corrector_agent,
+    )
 
 
 # Fallback statique (rétro-compat)
@@ -180,8 +250,9 @@ tache_correction = Task(
     agent=corrector_agent,
 )
 
+
 # ════════════════════════════════════════════════════════════════════════════
-# TASK 5 — REPORT (point fort: tool call only)
+# TASK 5 — REPORT
 # ════════════════════════════════════════════════════════════════════════════
 tache_rapport = Task(
     description=(

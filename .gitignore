@@ -1,0 +1,10 @@
+.venv311/
+.venv/
+venv/
+output/
+frontend/output/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

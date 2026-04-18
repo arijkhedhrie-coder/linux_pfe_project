@@ -1,0 +1,19 @@
+.venv311/
+.venv/
+venv/
+output/
+backend/output/
+frontend/output/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+# Logs
+backend/data/logs/
+# Raw data
+backend/data/raw/
+# Models
+backend/src/models/
+# Additional cache
+prototype/backend/__pycache__/

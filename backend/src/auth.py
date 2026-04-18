@@ -14,7 +14,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 # ── Stockage utilisateurs (fichier JSON local) ─────────────
 USERS_FILE = "users.json"
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def load_users() -> dict:
     if not os.path.exists(USERS_FILE):

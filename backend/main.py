@@ -1,26 +1,27 @@
 """
-main.py — VERSION COMPLÈTE FINALE (HYBRID v3 + robustesse prod-lite)
+main.py — VERSION FUSIONNÉE FINALE (HYBRID v3 + robustesse prod-lite)
+
+Fusion des deux versions :
+  - Version Binôme : Crew A complet (collector + analyst + detector), sanitize alarms
+  - Ta version     : _build_deterministic_analysis() (fallback fiable), _run_safe_corrective_action(),
+                     utilitaires robustes (_is_usable_ip, _as_float, _as_int, _alarm_signature)
+
+Stratégie :
+  • Crew A tente l'analyse agentique complète (comme la version binôme)
+  • Si Groq plante (rate limit, SSL, tool_use_failed), fallback automatique
+    sur _build_deterministic_analysis() — analyse Python pure, toujours fiable
+  • _sanitize_alarms_for_prompt() empêche les erreurs 400 Groq (depuis binôme)
+  • _run_safe_corrective_action() valide IP + sévérité avant tout blocage (ta version)
 
 Pipeline:
   1) Ingestion S3 (processed/dataset_*.csv) — tolérant aux fichiers corrompus
-  2) Normalisation schéma (Date/IP/Etat/Service/Message) — testable
+  2) Normalisation schéma (Date/IP/Etat/Service/Message)
   3) Métriques + résumé compact pour agents
   4) PASS 1 détection (seuils par défaut)
   5) Orchestrateur → DynamicConfig (JSON)
   6) PASS 2 détection (si config non-default)
-  7) Agents CrewAI:
-       - Crew A: collect/analyse/detect (tâches conditionnelles)
-       - Crew B: reporter (séparé pour résilience)
-     + filets outils: correctif + rapport (si besoin)
-  8) Forecast (best-effort) + sauvegarde locale (protégée) + S3 (best-effort) + mémoire
-
-Points forts:
-  - Fix SSL: httpx/http2 désactivé
-  - Throttle LLM défensif: jamais `raise None`
-  - S3: try/catch par objet
-  - Etat: mapping statut/severite/message (évite régression "Info" aveugle)
-  - Mémoire: ips_suspectes calculés
-  - Import détection: message explicite si ml_engine_bridge ET anomaly_detection échouent
+  7) Agents CrewAI (avec fallback déterministe si Groq échoue)
+  8) Forecast + sauvegarde locale + S3 + mémoire
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ import os
 import sys
 import time
 import inspect
+import re as _re
 from datetime import datetime
 from typing import Any
 
@@ -164,16 +166,198 @@ except Exception as e:
         ) from (_err_ad if _err_ml is None else _err_ml)
 
 
-def _call_detecter_anomalies(df_in: pd.DataFrame, dynamic_config: Any | None):
-    """
-    Compatibilité entre versions de `detecter_anomalies`:
-    - certaines signatures n'acceptent pas `dynamic_config`
-    - certaines attendent un autre nom (`config`, `cfg`, etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+# Utilitaires robustes (TA VERSION)
+# ─────────────────────────────────────────────────────────────────────────────
 
-    Stratégie:
-    - bind via `inspect.signature` (robuste)
-    - si Pass2 demandé mais aucun param compatible: warning + appel Pass1-equivalent
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_usable_ip(ip: Any) -> bool:
+    ip_str = str(ip or "").strip()
+    if ip_str.lower() in {"", "n/a", "none", "nan", "multiple", "unknown_ip"}:
+        return False
+    return bool(_re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", ip_str))
+
+
+def _alarm_signature(alarmes: Any) -> str:
+    if not isinstance(alarmes, list):
+        return str(alarmes)
+    normalized: list[Any] = []
+    for alarme in alarmes:
+        if isinstance(alarme, dict):
+            normalized.append({k: alarme.get(k) for k in sorted(alarme)})
+        else:
+            normalized.append(str(alarme))
+    return json.dumps(normalized, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _build_alarm_payload(nb_anomalies: int, ip_principale: str) -> str:
+    if nb_anomalies <= 0:
+        return "Aucune alarme critique"
+    ip_part = ip_principale if _is_usable_ip(ip_principale) else "unknown_ip"
+    return f"ANOMALIE nb={nb_anomalies} ip={ip_part} severite=AVERTISSEMENT"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sanitisation alarmes → texte lisible (VERSION BINÔME — évite erreurs 400 Groq)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _sanitize_alarms_for_prompt(alarmes_resumees: str, max_len: int = 250) -> str:
     """
+    Convertit le JSON brut des alarmes en texte lisible sans guillemets imbriqués.
+    Groq llama-3.1-8b-instant rejette les tool calls dont le contenu contient
+    des JSON strings avec \\\" imbriqués → on aplatit en texte simple.
+    """
+    try:
+        parsed = json.loads(alarmes_resumees)
+        if isinstance(parsed, list):
+            if not parsed:
+                return "aucune alarme"
+            lines = []
+            for item in parsed[:3]:   # max 3 alarmes pour rester sous le TPM
+                if isinstance(item, dict):
+                    ip  = item.get("ip", "N/A")
+                    niv = item.get("niveau", item.get("severite", "?"))
+                    sc  = round(float(item.get("score_final", item.get("score", 0))), 2)
+                    exp = str(item.get("explication", item.get("message", "")))[:80]
+                    lines.append(f"IP={ip} niveau={niv} score={sc} cause={exp}")
+                else:
+                    lines.append(str(item)[:100])
+            return " | ".join(lines)
+        if isinstance(parsed, dict):
+            ip  = parsed.get("ip", "N/A")
+            niv = parsed.get("niveau", parsed.get("severite", "?"))
+            return f"IP={ip} niveau={niv}"
+        return str(parsed)[:max_len]
+    except Exception:
+        # Déjà du texte brut — supprimer les caractères problématiques
+        clean = _re.sub(r'["\\\{\}\[\]]', '', str(alarmes_resumees))
+        return clean[:max_len]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Analyse déterministe (TA VERSION — fallback si Groq échoue)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_deterministic_analysis(
+    metrics_summary: dict[str, Any],
+    agent_inputs: dict[str, Any],
+    alarmes_pass1: Any,
+    alarmes_final: Any,
+    pass2_ran: bool,
+    dynamic_config: DynamicConfig,
+) -> str:
+    """
+    Analyse Python pure, sans appel LLM. Toujours fiable même si Groq est indisponible.
+    Utilisée en fallback si le Crew A échoue.
+    """
+    pattern = str(metrics_summary.get("attack_pattern", "unknown")).replace("_", " ")
+    health = _as_float(metrics_summary.get("health_score"), 0.0)
+    status = str(metrics_summary.get("alert_status", "UNKNOWN")).upper()
+    entropy = _as_float(metrics_summary.get("ip_entropy"), 0.0)
+    unique_ips = _as_int(metrics_summary.get("unique_attacking_ips"), 0)
+    velocity = _as_float(metrics_summary.get("attack_velocity"), 0.0)
+    night_ratio = _as_float(metrics_summary.get("night_ratio"), 0.0)
+    ip_principale = str(agent_inputs.get("ip_principale", "N/A") or "N/A")
+    nb_anomalies = _as_int(agent_inputs.get("nb_anomalies"), 0)
+
+    confidence = "high"
+    if health >= 99 and status == "HIGH":
+        confidence = "very high"
+    elif health < 80 or status not in {"HIGH", "MEDIUM"}:
+        confidence = "medium"
+
+    automated = velocity >= 100 or (unique_ips <= 5 and entropy <= 1.0)
+    if automated:
+        line2 = (
+            "Likely automated; evidence: "
+            f"low IP diversity ({unique_ips}), low entropy ({entropy:.3f}), "
+            f"high request volume ({velocity:.1f}), and repeated failures tied to {ip_principale}."
+        )
+    else:
+        line2 = (
+            "Possibly human-driven or mixed; evidence is weaker because "
+            f"velocity={velocity:.1f}, entropy={entropy:.3f}, and unique_ips={unique_ips} "
+            "do not show a clean bot pattern."
+        )
+
+    pass2_changed = _alarm_signature(alarmes_final) != _alarm_signature(alarmes_pass1)
+    if pass2_ran:
+        if pass2_changed:
+            line3 = (
+                "Yes; Pass 2 ran and changed detection because the orchestrator adjusted thresholds "
+                f"({dynamic_config.summary()})."
+            )
+        else:
+            line3 = (
+                "Yes; Pass 2 ran but detection stayed effectively the same after the threshold review."
+            )
+    else:
+        line3 = (
+            "No; Pass 2 did not run because the orchestrator kept the default thresholds "
+            "and no override was justified."
+        )
+
+    risk_ip = ip_principale if _is_usable_ip(ip_principale) else "the same source"
+    line4 = (
+        "Top next-2h risks: sustained credential abuse from "
+        f"{risk_ip}, and service or alert-noise degradation from {nb_anomalies} ongoing anomaly signal(s) "
+        f"with night_ratio={night_ratio:.3f}."
+    )
+
+    lines = [
+        f"Main threat: {pattern} with {confidence} confidence (health={health:.1f}%, status={status}).",
+        line2,
+        line3,
+        line4,
+    ]
+    return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Action corrective sécurisée (TA VERSION — valide IP + sévérité avant blocage)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _run_safe_corrective_action(
+    nb_anomalies: int,
+    ip_principale: str,
+    alarmes_final: Any,
+    outil_correctif: Any,
+) -> str:
+    """
+    Valide IP et sévérité avant tout appel au correcteur.
+    Évite de bloquer des IPs invalides (multiple, N/A, etc.).
+    """
+    has_critical_alarm = any(
+        isinstance(alarme, dict) and str(alarme.get("severite", "")).upper() == "CRITIQUE"
+        for alarme in (alarmes_final if isinstance(alarmes_final, list) else [])
+    )
+
+    if nb_anomalies > 0 and _is_usable_ip(ip_principale) and has_critical_alarm:
+        return outil_correctif._run(
+            anomalie_json=f"BLOCAGE IP {ip_principale} brute-force SSH critique"
+        )
+
+    return outil_correctif._run(anomalie_json="SURVEILLANCE NORMALE - aucune action")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Compatibilité detecter_anomalies (multi-signatures)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _call_detecter_anomalies(df_in: pd.DataFrame, dynamic_config: Any | None):
     fn = _detect_fn
     try:
         sig = inspect.signature(fn)
@@ -183,7 +367,6 @@ def _call_detecter_anomalies(df_in: pd.DataFrame, dynamic_config: Any | None):
     params = sig.parameters
     bound = sig.bind_partial()
 
-    # 1) bind dataframe (df / df_clean / df_multi / df_par_ip / premier arg non-self)
     df_keys = ("df", "df_clean", "df_multi", "df_logs", "dataframe", "df_par_ip")
     bound_df = False
     for k in df_keys:
@@ -194,15 +377,12 @@ def _call_detecter_anomalies(df_in: pd.DataFrame, dynamic_config: Any | None):
 
     if not bound_df:
         positional = [
-            name
-            for name, p in params.items()
-            if p.kind
-            in (
+            name for name, p in params.items()
+            if p.kind in (
                 inspect.Parameter.POSITIONAL_ONLY,
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
             )
         ]
-        # skip self
         if positional and positional[0] == "self":
             positional = positional[1:]
         if positional:
@@ -210,19 +390,9 @@ def _call_detecter_anomalies(df_in: pd.DataFrame, dynamic_config: Any | None):
             bound_df = True
 
     if not bound_df:
-        # dernier recours: 1er argument positionnel
         return fn(df_in)
 
-    # 2) bind dynamic config si possible
-    dc_keys = [
-        "dynamic_config",
-        "dynamic",
-        "dyn_cfg",
-        "cfg",
-        "config",
-        "agent_config",
-        "hybrid_config",
-    ]
+    dc_keys = ["dynamic_config", "dynamic", "dyn_cfg", "cfg", "config", "agent_config", "hybrid_config"]
     dc_param = next((k for k in dc_keys if k in params), None)
 
     if dynamic_config is not None and dc_param is None:
@@ -238,58 +408,39 @@ def _call_detecter_anomalies(df_in: pd.DataFrame, dynamic_config: Any | None):
     try:
         return fn(*bound.args, **bound.kwargs)
     except TypeError:
-        # si bind_partial n'arrive pas à couvrir des cas exotiques, fallback
         if dynamic_config is None:
             return fn(df_in)
         LOG.warning("Detect: bind failed; fallback positional df only. sig=%s", str(sig))
         return fn(df_in)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SessionLogger (stub si absent)
+# ─────────────────────────────────────────────────────────────────────────────
 try:
     from src.logging_utils import SessionLogger
 except Exception:
-
     class SessionLogger:  # type: ignore
-        def pipeline_start(self, **kwargs):
-            LOG.info("pipeline_start %s", kwargs)
-
-        def metrics_computed(self, summary):
-            LOG.info("metrics_computed %s", summary)
-
-        def pass1_complete(self, alarmes, **kwargs):
-            LOG.info("pass1_complete alarms=%s", len(alarmes) if hasattr(alarmes, "__len__") else "n/a")
-
-        def pass2_complete(self, alarmes_final, alarmes_pass1, **kwargs):
-            LOG.info("pass2_complete final=%s pass1=%s", len(alarmes_final), len(alarmes_pass1))
-
-        def dynamic_config_default(self):
-            LOG.info("dynamic_config_default")
-
+        def pipeline_start(self, **kwargs): LOG.info("pipeline_start %s", kwargs)
+        def metrics_computed(self, summary): LOG.info("metrics_computed %s", summary)
+        def pass1_complete(self, alarmes, **kwargs): LOG.info("pass1_complete alarms=%s", len(alarmes) if hasattr(alarmes, "__len__") else "n/a")
+        def pass2_complete(self, alarmes_final, alarmes_pass1, **kwargs): LOG.info("pass2_complete final=%s pass1=%s", len(alarmes_final), len(alarmes_pass1))
+        def dynamic_config_default(self): LOG.info("dynamic_config_default")
         def dynamic_config_issued(self, cfg):
-            try:
-                LOG.info("dynamic_config_issued %s", cfg.summary())
-            except Exception:
-                LOG.info("dynamic_config_issued %s", str(cfg))
+            try: LOG.info("dynamic_config_issued %s", cfg.summary())
+            except Exception: LOG.info("dynamic_config_issued %s", str(cfg))
+        def agents_complete(self, txt: str): LOG.info("agents_complete len=%s", len(txt or ""))
+        def warning(self, where: str, msg: str): LOG.warning("[%s] %s", where, msg)
+        def error(self, where: str, exc: BaseException): LOG.exception("[%s] %s", where, exc)
+        def session_summary(self, **kwargs): LOG.info("session_summary keys=%s", list(kwargs.keys()))
+        def close(self): return
 
-        def agents_complete(self, txt: str):
-            LOG.info("agents_complete len=%s", len(txt or ""))
 
-        def warning(self, where: str, msg: str):
-            LOG.warning("[%s] %s", where, msg)
-
-        def error(self, where: str, exc: BaseException):
-            LOG.exception("[%s] %s", where, exc)
-
-        def session_summary(self, **kwargs):
-            LOG.info("session_summary keys=%s", list(kwargs.keys()))
-
-        def close(self):
-            return
-
-# CrewAI
+# ─────────────────────────────────────────────────────────────────────────────
+# CrewAI imports
+# ─────────────────────────────────────────────────────────────────────────────
 try:
     from crewai import Crew, Process
-
     CREWAI_AVAILABLE = True
     _CREWAI_IMPORT_ERR = None
 except Exception as e:
@@ -303,6 +454,7 @@ if CREWAI_AVAILABLE:
         detector_agent,
         reporter_agent,
         orchestrator_agent,
+        outil_alarme,
         outil_correctif,
         outil_rapport,
         llm as groq_llm,
@@ -318,12 +470,12 @@ if CREWAI_AVAILABLE:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Normalisation (testable)
+# Normalisation
 # ─────────────────────────────────────────────────────────────────────────────
+
 def _map_etat_from_row(row: pd.Series) -> str:
     if "Etat" in row.index and pd.notna(row.get("Etat")) and str(row["Etat"]).strip():
         return str(row["Etat"])
-
     if "statut" in row.index and pd.notna(row.get("statut")):
         v = str(row["statut"]).lower()
         if any(k in v for k in ["error", "failed", "critical", "denied", "refused", "failure"]):
@@ -331,7 +483,6 @@ def _map_etat_from_row(row: pd.Series) -> str:
         if any(k in v for k in ["warning", "warn", "timeout"]):
             return "Warning"
         return "Info"
-
     if "severite" in row.index and pd.notna(row.get("severite")):
         v = str(row["severite"]).lower()
         if v in ["critical", "error", "high"]:
@@ -339,7 +490,6 @@ def _map_etat_from_row(row: pd.Series) -> str:
         if v in ["warning", "medium"]:
             return "Warning"
         return "Info"
-
     msg = str(row.get("Message", row.get("detail", ""))).lower()
     if any(k in msg for k in ["error", "failed", "critical", "denied", "refused", "failure"]):
         return "Error"
@@ -350,7 +500,6 @@ def _map_etat_from_row(row: pd.Series) -> str:
 
 def normalize_logs_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-
     if "Date" not in df.columns:
         for col in ("timestamp", "DateTime"):
             if col in df.columns:
@@ -360,40 +509,25 @@ def normalize_logs_df(df: pd.DataFrame) -> pd.DataFrame:
             df["Date"] = pd.Timestamp.now()
     else:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-
     if "IP_Source" not in df.columns:
         df["IP_Source"] = df.get("source_ip", None)
-
     if "Service" not in df.columns:
         df["Service"] = df.get("source_log", df.get("type_event", "unknown"))
-
     if "Message" not in df.columns:
         df["Message"] = df.get("detail", "").astype(str)
-
     df["Etat"] = df.apply(_map_etat_from_row, axis=1)
     return df.dropna(subset=["Date"])
 
 
 def build_ip_feature_frame(df_logs: pd.DataFrame) -> pd.DataFrame:
-    """
-    `src.anomaly_detection.detecter_anomalies` attend un DataFrame **par IP** avec colonnes numériques:
-      - Nombre_Tentatives (obligatoire pour FEATURES)
-      - Nombre_Erreurs / nb_warnings (optionnel mais utile)
-
-    À partir des logs bruts (une ligne = un événement), on agrège par `IP_Source`.
-    """
     if "IP_Source" not in df_logs.columns:
         raise ValueError("Colonne IP_Source absente — impossible d'agréger par IP.")
-
     df = df_logs[df_logs["IP_Source"].notna()].copy()
     if df.empty:
         return pd.DataFrame(columns=["IP_Source", "Nombre_Tentatives", "Nombre_Erreurs", "nb_warnings", "Date"])
-
     if "Etat" not in df.columns:
         df["Etat"] = "Info"
-
     df["Date"] = pd.to_datetime(df.get("Date"), errors="coerce")
-
     g = df.groupby("IP_Source", dropna=True)
     out = g.agg(
         Nombre_Tentatives=("Etat", "size"),
@@ -401,13 +535,8 @@ def build_ip_feature_frame(df_logs: pd.DataFrame) -> pd.DataFrame:
         nb_warnings=("Etat", lambda s: int((s == "Warning").sum())),
         Date=("Date", "max"),
     ).reset_index()
-
-    # Signal "tentatives" vu par le modèle:
-    # - max(total_events, error_events) évite les vecteurs à 0 si beaucoup de lignes sont "Info"
     out["Nombre_Tentatives"] = out[["Nombre_Tentatives", "Nombre_Erreurs"]].max(axis=1).astype(int)
-
-    out = out.sort_values(["Nombre_Erreurs", "Nombre_Tentatives"], ascending=False).reset_index(drop=True)
-    return out
+    return out.sort_values(["Nombre_Erreurs", "Nombre_Tentatives"], ascending=False).reset_index(drop=True)
 
 
 def load_logs_from_s3(prefix: str = "processed/dataset_") -> pd.DataFrame:
@@ -422,7 +551,6 @@ def load_logs_from_s3(prefix: str = "processed/dataset_") -> pd.DataFrame:
         read_timeout=int(os.getenv("AWS_S3_READ_TIMEOUT", "300")),
         max_pool_connections=32,
     )
-
     s3 = boto3.client(
         "s3",
         region_name=region,
@@ -430,7 +558,6 @@ def load_logs_from_s3(prefix: str = "processed/dataset_") -> pd.DataFrame:
         aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
         config=boto_cfg,
     )
-
     resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
     objects = resp.get("Contents", []) or []
     if not objects:
@@ -460,10 +587,8 @@ def load_logs_from_s3(prefix: str = "processed/dataset_") -> pd.DataFrame:
 
 def _ips_suspectes(df: pd.DataFrame, anomalies: Any, k: int = 5) -> list[str]:
     ips: list[str] = []
-
     if isinstance(anomalies, pd.DataFrame) and (not anomalies.empty) and "source_ip" in anomalies.columns:
         ips.extend(anomalies["source_ip"].dropna().astype(str).head(k).tolist())
-
     if len(ips) < k and "IP_Source" in df.columns:
         tmp = df[df["IP_Source"].notna()].copy()
         if not tmp.empty:
@@ -477,7 +602,6 @@ def _ips_suspectes(df: pd.DataFrame, anomalies: Any, k: int = 5) -> list[str]:
                     ips.append(ip)
                 if len(ips) >= k:
                     break
-
     return ips[:k]
 
 
@@ -501,7 +625,6 @@ def _install_llm_throttle() -> None:
             except BaseException as e:
                 last_exc = e
                 s = str(e).lower()
-
                 if "429" in s or "rate_limit" in s:
                     wait = 30 + attempt * 15
                     LOG.warning("THROTTLE rate_limit (%s/3) sleep=%ss", attempt + 1, wait)
@@ -550,13 +673,16 @@ def _run_dynamic_config(log: SessionLogger, agent_inputs: dict) -> DynamicConfig
         log.warning("dynamic_config", f"{type(e).__name__}: {e} — defaults")
         return DynamicConfig.default()
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN
+# ─────────────────────────────────────────────────────────────────────────────
+
 def main() -> None:
     log = SessionLogger()
 
-    # Flag métier (si présent dans ton module agents)
     try:
         import src.agents.agents as _agents_module
-
         _agents_module._alarme_declenchee_ce_cycle = False  # type: ignore[attr-defined]
     except Exception:
         pass
@@ -575,7 +701,7 @@ def main() -> None:
             data_sources=df["Serveur"].unique().tolist() if "Serveur" in df.columns else [],
         )
 
-        # Step 2 — metrics
+        # Step 2 — métriques
         erreurs_par_heure, tentatives_par_ip, events_par_service = calculer_metriques(df)
         metrics_summary = get_summary_for_detector(erreurs_par_heure, tentatives_par_ip, df_clean=df)
         log.metrics_computed(metrics_summary)
@@ -583,12 +709,10 @@ def main() -> None:
         # Forecast best-effort
         try:
             from src.forecasting import prevoir_erreurs
-
             _ = prevoir_erreurs(erreurs_par_heure)
         except Exception as e:
             log.warning("forecast", f"skipped: {type(e).__name__}: {e}")
 
-        # Features agrégées (par IP) — nécessaire pour `src.anomaly_detection.detecter_anomalies`
         # Step 3 — PASS 1
         LOG.info("PASS 1 — default thresholds")
         df_ip = build_ip_feature_frame(df)
@@ -598,19 +722,21 @@ def main() -> None:
         # Step 4 — agent inputs
         sources_str = ",".join(df["Serveur"].unique().tolist()) if "Serveur" in df.columns else "unknown"
         agent_inputs = _get_agent_inputs_fn(alarmes_pass1, anomalies)  # type: ignore[misc]
-        agent_inputs.update(
-            {
-                "serveur_nom": sources_str,
-                "date": datetime.now().strftime("%Y%m%d_%H%M%S"),
-                "historical_context": get_contexte_historique(),
-                **{k: str(v) for k, v in metrics_summary.items()},
-                "pass2_ran": "False",
-                "dynamic_config_summary": "not yet computed",
-                "dynamic_config_reasoning": "not yet computed",
-            }
+        agent_inputs.update({
+            "serveur_nom": sources_str,
+            "date": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "historical_context": get_contexte_historique(),
+            **{k: str(v) for k, v in metrics_summary.items()},
+            "pass2_ran": "False",
+            "dynamic_config_summary": "not yet computed",
+            "dynamic_config_reasoning": "not yet computed",
+        })
+        # ← BINÔME : sanitize avant d'envoyer à Groq
+        agent_inputs["alarmes_resumees"] = _sanitize_alarms_for_prompt(
+            agent_inputs.get("alarmes_resumees", "[]")
         )
 
-        # Step 5 — orchestrator
+        # Step 5 — orchestrateur → DynamicConfig
         dynamic_config = _run_dynamic_config(log, agent_inputs)
 
         # Step 6 — PASS 2
@@ -625,12 +751,14 @@ def main() -> None:
             pass2_ran = False
 
         agent_inputs.update(_get_agent_inputs_fn(alarmes_final, anomalies))  # type: ignore[misc]
-        agent_inputs.update(
-            {
-                "pass2_ran": str(pass2_ran),
-                "dynamic_config_summary": dynamic_config.summary(),
-                "dynamic_config_reasoning": (dynamic_config.reasoning or "")[:200],
-            }
+        agent_inputs.update({
+            "pass2_ran": str(pass2_ran),
+            "dynamic_config_summary": dynamic_config.summary(),
+            "dynamic_config_reasoning": (dynamic_config.reasoning or "")[:200],
+        })
+        # ← BINÔME : re-sanitize après mise à jour
+        agent_inputs["alarmes_resumees"] = _sanitize_alarms_for_prompt(
+            agent_inputs.get("alarmes_resumees", "[]")
         )
 
         parts: list[str] = []
@@ -643,9 +771,8 @@ def main() -> None:
             ip_principale = str(agent_inputs.get("ip_principale", "N/A") or "N/A")
             alarmes_resumees = str(agent_inputs.get("alarmes_resumees", "Aucune") or "Aucune")
 
+            # ── CREW A — analyse agentique complète (VERSION BINÔME, tentative principale) ──
             t_detection = creer_tache_detection(nb_anomalies, ip_principale, alarmes_resumees)
-
-            # Crew A — analyse
             analysis_crew = Crew(
                 agents=[collector_agent, analyst_agent, detector_agent],
                 tasks=[tache_collecte, tache_analyse, t_detection],
@@ -657,11 +784,22 @@ def main() -> None:
             try:
                 crew_out = analysis_crew.kickoff(inputs=agent_inputs)
                 parts.append(str(crew_out))
+                LOG.info("Crew A réussi")
             except Exception as e:
                 log.warning("analysis_crew", f"{type(e).__name__}: {e}")
-                parts.append(f"[PARTIAL] analysis_crew: {type(e).__name__}: {e}")
+                # ── FALLBACK DÉTERMINISTE (TA VERSION) ─────────────────────────────────────
+                LOG.info("Crew A échoué → fallback analyse déterministe")
+                analysis_text = _build_deterministic_analysis(
+                    metrics_summary=metrics_summary,
+                    agent_inputs=agent_inputs,
+                    alarmes_pass1=alarmes_pass1,
+                    alarmes_final=alarmes_final,
+                    pass2_ran=pass2_ran,
+                    dynamic_config=dynamic_config,
+                )
+                parts.append(f"[ANALYST_FALLBACK]\n{analysis_text}")
 
-            # Crew B — rapport (résilience)
+            # ── Crew B — rapport (résilience, VERSION BINÔME) ───────────────────────────────
             report_crew = Crew(
                 agents=[reporter_agent],
                 tasks=[tache_rapport],
@@ -676,38 +814,47 @@ def main() -> None:
                 log.warning("report_crew", f"{type(e).__name__}: {e}")
                 parts.append(f"[REPORT_AGENT][WARN] {type(e).__name__}: {e}")
 
-            # Filet outil correctif
+            # ── Alarme (outil direct, robuste) ──────────────────────────────────────────────
             try:
-                _ = creer_tache_correction(nb_anomalies, ip_principale)  # garde cohérence si tu relies sur la factory
-                corr_in = f"BLOCAGE IP {ip_principale} brute-force SSH critique"
-                corr = outil_correctif._run(anomalie_json=corr_in)
+                alarme_result = outil_alarme._run(
+                    alarmes_json=_build_alarm_payload(nb_anomalies, ip_principale)
+                )
+                parts.append(f"[ALARM_TOOL]\n{alarme_result}")
+            except Exception as e:
+                log.warning("alarm_tool", f"{type(e).__name__}: {e}")
+                parts.append(f"[ALARM_TOOL][WARN] {type(e).__name__}: {e}")
+
+            # ── Action corrective sécurisée (TA VERSION) ────────────────────────────────────
+            try:
+                corr = _run_safe_corrective_action(
+                    nb_anomalies, ip_principale, alarmes_final, outil_correctif
+                )
                 parts.append(f"[CORRECTIVE_TOOL]\n{corr}")
             except Exception as e:
+                log.warning("corrective_tool", f"{type(e).__name__}: {e}")
                 parts.append(f"[CORRECTIVE_TOOL][WARN] {type(e).__name__}: {e}")
 
-            # Filet outil rapport
+            # ── Rapport S3 (outil direct) ────────────────────────────────────────────────────
             try:
-                report_payload = json.dumps(
-                    {
-                        "health": agent_inputs.get("health_score"),
-                        "anomalies": agent_inputs.get("nb_anomalies"),
-                        "pattern": agent_inputs.get("attack_pattern"),
-                        "ip": agent_inputs.get("ip_principale"),
-                        "chains": agent_inputs.get("chain_incidents"),
-                        "pass2": agent_inputs.get("pass2_ran"),
-                        "timestamp": agent_inputs.get("date"),
-                    },
-                    ensure_ascii=False,
-                )
+                report_payload = json.dumps({
+                    "health": agent_inputs.get("health_score"),
+                    "anomalies": agent_inputs.get("nb_anomalies"),
+                    "pattern": agent_inputs.get("attack_pattern"),
+                    "ip": agent_inputs.get("ip_principale"),
+                    "chains": agent_inputs.get("chain_incidents"),
+                    "pass2": agent_inputs.get("pass2_ran"),
+                    "timestamp": agent_inputs.get("date"),
+                }, ensure_ascii=False)
                 rep = outil_rapport._run(rapport_json=report_payload)
                 parts.append(f"[REPORT_TOOL]\n{rep}")
             except Exception as e:
+                log.warning("report_tool", f"{type(e).__name__}: {e}")
                 parts.append(f"[REPORT_TOOL][WARN] {type(e).__name__}: {e}")
 
             resultat = "\n\n".join(parts)
             log.agents_complete(resultat)
 
-        # Step 8 — retrain + persist + memory
+        # Step 8 — réentraînement + sauvegarde + mémoire
         try:
             _retrain_fn(df_ip)  # type: ignore[misc]
         except Exception as e:
@@ -723,23 +870,21 @@ def main() -> None:
         except Exception as e:
             log.warning("upload_s3", f"{type(e).__name__}: {e}")
 
-        sauvegarder_memoire(
-            {
-                "ips_suspectes": _ips_suspectes(df, anomalies, k=5),
-                "nb_anomalies": len(anomalies) if isinstance(anomalies, pd.DataFrame) else int(str(agent_inputs.get("nb_anomalies", "0") or "0")),
-                "nb_alarmes_pass1": len(alarmes_pass1) if hasattr(alarmes_pass1, "__len__") else 0,
-                "nb_alarmes_final": len(alarmes_final) if hasattr(alarmes_final, "__len__") else 0,
-                "health_score": metrics_summary.get("health_score", 100.0),
-                "attack_pattern": metrics_summary.get("attack_pattern", "unknown"),
-                "dynamic_config": dynamic_config.to_json(),
-                "agent_threat_level": getattr(dynamic_config, "threat_level", "NORMAL"),
-                "pass2_ran": pass2_ran,
-                "threshold_snapshots": threshold_snapshots,
-                "date": agent_inputs.get("date"),
-                "alarmes": alarmes_final,
-                "resultat_agents": str(resultat)[:500],
-            }
-        )
+        sauvegarder_memoire({
+            "ips_suspectes": _ips_suspectes(df, anomalies, k=5),
+            "nb_anomalies": len(anomalies) if isinstance(anomalies, pd.DataFrame) else int(str(agent_inputs.get("nb_anomalies", "0") or "0")),
+            "nb_alarmes_pass1": len(alarmes_pass1) if hasattr(alarmes_pass1, "__len__") else 0,
+            "nb_alarmes_final": len(alarmes_final) if hasattr(alarmes_final, "__len__") else 0,
+            "health_score": metrics_summary.get("health_score", 100.0),
+            "attack_pattern": metrics_summary.get("attack_pattern", "unknown"),
+            "dynamic_config": dynamic_config.to_json(),
+            "agent_threat_level": getattr(dynamic_config, "threat_level", "NORMAL"),
+            "pass2_ran": pass2_ran,
+            "threshold_snapshots": threshold_snapshots,
+            "date": agent_inputs.get("date"),
+            "alarmes": alarmes_final,
+            "resultat_agents": str(resultat)[:500],
+        })
 
         LOG.info("MEMORY ctx=%s", get_contexte_historique())
 

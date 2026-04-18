@@ -121,7 +121,7 @@ export const LoginPage = () => {
         </form>
 
         <div className="login-footer">
-          <span>🔒 Connexion chiffrée JWT · HTTPS</span>
+          <span> Connexion chiffrée JWT · HTTPS</span>
         </div>
       </div>
     </div>

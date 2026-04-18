@@ -1,8 +1,8 @@
 {
-  "admin": {
-    "username": "admin",
-    "email": "admin@security.com",
-    "hashed_password": "$2b$12$3EjHtQ.85W2/zCmWwpBIQ.7CcnZ.tSmiUlmMuU1MYqGULzWrR02FC",
-    "created_at": "2026-04-01T20:42:24.395494"
+  "arij": {
+    "username": "arij",
+    "email": "arij.khedhrie@gmail.com",
+    "hashed_password": "$2b$12$.3QCJuyxbvXxyS1MKETCbe8bx3nTwHCCkpnP6mvbnnp.I8Y5xEwcW",
+    "created_at": "2026-04-17T05:03:01.795469"
   }
 }

@@ -13,8 +13,10 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 # ── Stockage utilisateurs (fichier JSON local) ─────────────
-USERS_FILE = "users.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+USERS_FILE = os.path.join(BASE_DIR, "users.json")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 def load_users() -> dict:
     if not os.path.exists(USERS_FILE):

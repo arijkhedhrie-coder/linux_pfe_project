@@ -719,6 +719,274 @@
         "alarmes": [],
         "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 20\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
       }
+    },
+    {
+      "date": "2026-04-16T06:21:18.861355",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 0,
+        "nb_alarmes_final": 0,
+        "health_score": 99.8,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260416_061333",
+        "alarmes": [],
+        "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 20\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
+      }
+    },
+    {
+      "date": "2026-04-16T07:31:21.248370",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 2,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No changes needed for Pass 2 based on current stats and alarms.\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260416_072636",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-16T07:26:36.091558",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6293,
+            "score_c1": 0.65,
+            "score_c2": 0.787,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.63 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": "[PARTIAL] analysis_crew: BadRequestError: litellm.BadRequestError: GroqException - {\"error\":{\"message\":\"Failed to call a function. Please adjust your prompt. See 'failed_generation' for more details.\",\"type\":\"invalid_request_error\",\"code\":\"tool_use_failed\",\"failed_generation\":\"\\u003cfunction=analyser_logs\\u003e{\\\"contenu\\\": \\\"health=99.4% status=HIGH pattern=concentrated_attacker entropy=0.632 ips=4 velocity=495.0 spike=False night=0.277 alarms=[{\\\\\\\"timestamp\\\\\\\": \\\\\\\"2026-04-16T07:26:36.091558"
+      }
+    },
+    {
+      "date": "2026-04-16T08:20:56.010560",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260416_080859",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-16T08:08:59.674964",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 61\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
+      }
+    },
+    {
+      "date": "2026-04-16T15:23:11.186932",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260416_151543",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-16T15:15:43.063873",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 61\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
+      }
+    },
+    {
+      "date": "2026-04-16T21:07:19.238472",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260416_205959",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-16T20:59:59.783802",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 61\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
+      }
+    },
+    {
+      "date": "2026-04-17T05:03:44.319979",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260417_045623",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-17T04:56:23.164702",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 61\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
+      }
+    },
+    {
+      "date": "2026-04-18T08:19:56.337532",
+      "donnees": {
+        "ips_suspectes": [
+          "192.168.100.20",
+          "192.168.56.103",
+          "192.168.56.1",
+          "192.168.56.101"
+        ],
+        "nb_anomalies": 1,
+        "nb_alarmes_pass1": 1,
+        "nb_alarmes_final": 1,
+        "health_score": 99.4,
+        "attack_pattern": "concentrated_attacker",
+        "dynamic_config": "{\n  \"ssh_high_risk_threshold\": null,\n  \"ssh_med_risk_threshold\": null,\n  \"web_high_risk_threshold\": null,\n  \"web_med_risk_threshold\": null,\n  \"ftp_high_risk_threshold\": null,\n  \"ftp_med_risk_threshold\": null,\n  \"kernel_high_risk_threshold\": null,\n  \"session_high_risk_threshold\": null,\n  \"session_med_risk_threshold\": null,\n  \"correlation_window_min\": null,\n  \"escalate_ips\": [],\n  \"suppress_ips\": [],\n  \"rerun_engines\": [],\n  \"reasoning\": \"No anomalies detected, no need for adjustments\",\n  \"threat_level\": \"NORMAL\",\n  \"issued_by\": \"orchestrator_agent\",\n  \"confidence\": 0.9\n}",
+        "agent_threat_level": "NORMAL",
+        "pass2_ran": false,
+        "threshold_snapshots": [],
+        "date": "20260418_081329",
+        "alarmes": [
+          {
+            "timestamp": "2026-04-18T08:13:29.798272",
+            "ip": "192.168.100.20",
+            "niveau": "ANOMALIE",
+            "score_final": 0.6085,
+            "score_c1": 0.65,
+            "score_c2": 0.735,
+            "score_c3": 0.6,
+            "score_c4": 0.0,
+            "explication": "Causes : Nombre_Erreurs=508",
+            "raisons": "Nombre_Tentatives=5131.0 > seuil=50.0 (+0.40) | Nombre_Erreurs=508.0 > seuil=200.0 (+0.25)",
+            "severite": "AVERTISSEMENT",
+            "message": "🟠 ANOMALIE | IP=192.168.100.20 | Score=0.61 | Causes : Nombre_Erreurs=508",
+            "type": "DÉTECTION ANOMALIE",
+            "valeur": 5131.0,
+            "seuil": 50.0
+          }
+        ],
+        "resultat_agents": " \n\nAVERTISSEMENT count: 1\nSecurity score: 61\nMONITOR\n\n[REPORT_AGENT]\nLe rapport a été correctement sauvegardé sur S3.\n\n[CORRECTIVE_TOOL]\n{\n  \"type\": \"BLOCAGE_IP_AWS_SECGROUP\",\n  \"commande\": \"iptables -A INPUT -s multiple -j DROP\",\n  \"description\": \"Blocage immédiat de multiple via AWS Security Group (Boto3)\",\n  \"statut\": \"EN_COURS\",\n  \"aws_blocage_reel\": {\n    \"statut\": \"IGNORÉ\",\n    \"raison\": \"IP 'multiple' non spécifique — impossible de bloquer automatiquement\",\n    \"conseil\": \"Identifiez les "
+      }
     }
   ],
   "anomalies_vues": [],
@@ -730,7 +998,8 @@
     "211.107.232.1",
     "192.168.56.103",
     "192.168.56.1",
-    "192.168.56.101"
+    "192.168.56.101",
+    "192.168.100.20"
   ],
   "threshold_history": []
 }

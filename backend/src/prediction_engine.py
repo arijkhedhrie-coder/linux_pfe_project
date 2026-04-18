@@ -366,4 +366,3 @@ def run_prediction_engine(df_norm: pd.DataFrame) -> dict[str, Any]:
         "predicted_events": predicted_events,
     }
 
-v

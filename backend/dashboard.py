@@ -28,16 +28,36 @@ def get_live_data():
     except:
         return None
 
-
 def get_batch_results():
-    """Source 2 — résultats ML via main.py (toutes les 4h)."""
+    """
+    Source 2 — résultats ML batch.
+    Priorité 1 : dashboard_api.py sur port 5000 (données riches)
+    Priorité 2 : fichier JSON local (fallback si API non lancée)
+    """
+    # Essaie d'abord l'API de ton binôme
+    try:
+        r = requests.get("http://localhost:5000/api/kpis", timeout=2)
+        if r.status_code == 200:
+            return r.json()
+    except:
+        pass
+
+    # Fallback sur le fichier JSON local
     path = "output/results_latest.json"
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)
     return None
 
-
+def get_alarms():
+    """Alarmes depuis dashboard_api.py"""
+    try:
+        r = requests.get("http://localhost:5000/api/alarms", timeout=2)
+        if r.status_code == 200:
+            return r.json()
+    except:
+        pass
+    return []
 # ──────────────────────────────────────────
 # HEADER
 # ──────────────────────────────────────────

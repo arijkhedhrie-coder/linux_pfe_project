@@ -38,13 +38,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-PROJECT_ROOT    = Path(__file__).resolve().parent.parent
-MEMORY_FILE     = PROJECT_ROOT / "long_term_memory.json"
-OUTPUT_DIR      = PROJECT_ROOT / "output"
+BACKEND_ROOT    = Path(__file__).resolve().parent
+REPO_ROOT       = BACKEND_ROOT.parent
+FRONTEND_DIR    = REPO_ROOT / "frontend"
+PROJECT_ROOT    = BACKEND_ROOT
+MEMORY_FILE     = BACKEND_ROOT / "long_term_memory.json"
+OUTPUT_DIR      = BACKEND_ROOT / "output"
 CACHE_TTL_S     = 10   # re-read files at most every 10s
 
 app = Flask(__name__)
@@ -73,20 +76,25 @@ def _load_memory() -> dict:
 
 
 def _latest_jsonl() -> list[dict]:
-    """Return parsed events from the most recent session_*.jsonl file."""
-    files = sorted(glob.glob(str(OUTPUT_DIR / "session_*.jsonl")))
-    if not files:
-        return []
-    with open(files[-1], encoding="utf-8", errors="replace") as f:
-        events = []
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    return events
+    """Return parsed events from the most recent usable session_*.jsonl file."""
+    files = sorted(glob.glob(str(OUTPUT_DIR / "session_*.jsonl")), reverse=True)
+    for file_path in files:
+        try:
+            with open(file_path, encoding="utf-8", errors="replace") as f:
+                events = []
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+            if events:
+                return events
+        except OSError:
+            continue
+    return []
 
 
 def _get_event(events: list[dict], event_type: str) -> dict:
@@ -97,6 +105,27 @@ def _get_event(events: list[dict], event_type: str) -> dict:
     return {}
 
 
+def _as_float_or_none(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_int_or_none(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+
 # ─── KPI builder ─────────────────────────────────────────────────────────────
 
 def _build_kpis(events: list[dict], memory: dict) -> dict:
@@ -104,32 +133,55 @@ def _build_kpis(events: list[dict], memory: dict) -> dict:
     summary   = _get_event(events, "SESSION_SUMMARY")
     pass1     = _get_event(events, "PASS1_COMPLETE")
     pipeline  = _get_event(events, "PIPELINE_START")
+    data_quality = _build_data_quality(events)
 
-    health    = float(metrics.get("health_score") or summary.get("health_score") or 85.0)
-    # Derive proxy KPIs from alarm/metrics data
-    alarm_count   = int(pass1.get("alarm_count", 0))
-    ssh_alarms    = int(pass1.get("alarms_by_domain", {}).get("SSH", 0))
-    crit_count    = int(pass1.get("alarms_by_severity", {}).get("CRITIQUE", 0))
-    ip_count      = int(metrics.get("unique_attacking_ips") or 0)
-    velocity      = float(metrics.get("attack_velocity") or 0)
+    health = _as_float_or_none(metrics.get("health_score"))
+    if health is None:
+        health = _as_float_or_none(summary.get("health_score"))
+
+    ssh_alarms = _as_int_or_none(pass1.get("alarms_by_domain", {}).get("SSH"))
+    blocked_ips = _as_int_or_none(pass1.get("alarms_by_severity", {}).get("CRITIQUE"))
+    ip_count = _as_int_or_none(metrics.get("unique_attacking_ips"))
+    velocity = _as_float_or_none(metrics.get("attack_velocity"))
+    entropy = _as_float_or_none(metrics.get("ip_entropy"))
+    row_count = _as_int_or_none(pipeline.get("row_count"))
+    server_count = _as_int_or_none(pipeline.get("server_count"))
+
+    missing = []
+    if not events:
+        missing.append("No session_*.jsonl file found in backend/output.")
+    if health is None:
+        missing.append("health_score missing from METRICS_COMPUTED/SESSION_SUMMARY.")
+    if row_count is None:
+        missing.append("row_count missing from PIPELINE_START.")
 
     return {
-        "health_score":       round(health, 1),
-        "cpu_load":           round(max(10, min(100, 100 - health + 15)), 1),
-        "ssh_failures":       ssh_alarms,
-        "active_connections": int(metrics.get("unique_attacking_ips") or ip_count or 0) * 12,
-        "error_rate":         round(float(metrics.get("ip_entropy") or 0) * 2, 1),
-        "blocked_ips":        crit_count,
-        "alert_status":       metrics.get("alert_status", "NOMINAL"),
-        "attack_pattern":     metrics.get("attack_pattern", "unknown"),
-        "ip_entropy":         round(float(metrics.get("ip_entropy") or 0), 3),
+        "available": len(events) > 0,
+        "missing_data": missing,
+        "health_score": round(health, 1) if health is not None else None,
+        "ssh_failures": ssh_alarms,
+        "blocked_ips": blocked_ips,
+        "alert_status": metrics.get("alert_status"),
+        "attack_pattern": metrics.get("attack_pattern"),
+        "ip_entropy": round(entropy, 3) if entropy is not None else None,
         "unique_attacking_ips": ip_count,
-        "attack_velocity":    round(velocity, 2),
-        "is_velocity_spike":  bool(metrics.get("is_velocity_spike", False)),
-        "night_ratio":        round(float(metrics.get("night_ratio") or 0), 2),
-        "row_count":          int(pipeline.get("row_count", 0)),
-        "server_count":       int(pipeline.get("server_count", 0)),
-        "data_sources":       pipeline.get("data_sources", []),
+        "attack_velocity": round(velocity, 2) if velocity is not None else None,
+        "is_velocity_spike": bool(metrics.get("is_velocity_spike", False)) if metrics else False,
+        "night_ratio": round(_as_float_or_none(metrics.get("night_ratio")) or 0.0, 2) if metrics else None,
+        "row_count": row_count,
+        "server_count": server_count,
+        "data_sources": pipeline.get("data_sources", []),
+        "deduped_count": data_quality.get("deduped_count"),
+        "noise_ratio": data_quality.get("noise_ratio"),
+        "data_quality": data_quality.get("data_quality"),
+        "notes": {
+            "health_score": "Real metric from METRICS_COMPUTED/SESSION_SUMMARY.",
+            "ssh_failures": "Real SSH-domain alarm count from PASS1_COMPLETE.",
+            "blocked_ips": "Real count of CRITIQUE alarms from PASS1_COMPLETE.",
+            "unique_attacking_ips": "Real metric from METRICS_COMPUTED.",
+            "attack_velocity": "Real metric from METRICS_COMPUTED.",
+            "ip_entropy": "Real metric from METRICS_COMPUTED.",
+        },
     }
 
 
@@ -206,6 +258,8 @@ def _build_alarms(memory: dict) -> list[dict]:
 def _build_engine_scores(events: list[dict], memory: dict) -> list[dict]:
     pass1  = _get_event(events, "PASS1_COMPLETE")
     pass2  = _get_event(events, "PASS2_COMPLETE")
+    if not pass1:
+        return []
     by_dom = pass1.get("alarms_by_domain", {})
 
     engines = ["SSH", "WEB", "FTP", "SESSION", "KERNEL", "PREDICTION"]
@@ -218,8 +272,6 @@ def _build_engine_scores(events: list[dict], memory: dict) -> list[dict]:
 
     for eng in engines:
         alarm_count = int(by_dom.get(eng, 0))
-        # Derive a score from alarm count (rough but real)
-        base_score  = min(95.0, alarm_count * 8.5) if alarm_count else 5.0
         p1_thresh   = float(thresh_p1.get(f"{eng.lower()}_high", 55) or 55)
         p2_thresh   = float(thresh_p2.get(f"{eng.lower()}_high", p1_thresh) or p1_thresh)
 
@@ -227,10 +279,10 @@ def _build_engine_scores(events: list[dict], memory: dict) -> list[dict]:
         rerun_engines = pass2.get("engines_rerun", [])
         p2_ran = eng.lower() in [e.lower() for e in rerun_engines]
 
-        status = "BLOCK" if base_score >= 60 else "WATCH" if base_score >= 25 else "CLEAR"
+        status = "ALARM" if alarm_count > 0 else "CLEAR"
         scores.append({
             "engine":   eng,
-            "score":    round(base_score, 1),
+            "score":    alarm_count,
             "pass1":    round(p1_thresh, 1),
             "pass2":    round(p2_thresh, 1),
             "alarms":   alarm_count,
@@ -386,6 +438,15 @@ def _build_log_lines(events: list[dict]) -> list[str]:
             lines.append(f"{ts} [WARN:{e.get('source')}] {e.get('message','')[:100]}")
         elif et == "ERROR":
             lines.append(f"{ts} [ERROR:{e.get('source')}] {e.get('error','')[:100]}")
+        elif et == "TRUST_COMPUTED":
+            lines.append(
+                f"{ts} [TRUST_COMPUTED] conf={e.get('confidence_in_metrics','?')} "
+                f"({e.get('confidence_label','?')}) | "
+                f"agreement={e.get('model_agreement','?')} | "
+                f"fp_rate={e.get('false_positive_rate','?')} | "
+                f"drift={e.get('drift_score','?')}({e.get('drift_label','?')}) | "
+                f"stability={e.get('stability','?')}"
+            )
     return lines
 
 
@@ -393,7 +454,16 @@ def _build_log_lines(events: list[dict]) -> list[str]:
 
 @app.route("/api/health")
 def health():
-    return jsonify({"status": "ok", "version": "1.0", "timestamp": datetime.now().isoformat()})
+    latest_files = sorted(glob.glob(str(OUTPUT_DIR / "session_*.jsonl")))
+    return jsonify({
+        "status": "ok",
+        "version": "1.0",
+        "timestamp": datetime.now().isoformat(),
+        "memory_file_exists": MEMORY_FILE.exists(),
+        "output_dir_exists": OUTPUT_DIR.exists(),
+        "latest_session_file": Path(latest_files[-1]).name if latest_files else None,
+        "frontend_served_from": "/",
+    })
 
 
 @app.route("/api/kpis")
@@ -443,12 +513,22 @@ def sessions():
                 "nb_alarms_pass1":int(d.get("nb_alarmes_pass1", d.get("nb_alarmes", 0))),
                 "nb_alarms_final":int(d.get("nb_alarmes_final", d.get("nb_alarmes", 0))),
                 "pass2_ran":      bool(d.get("pass2_ran", False)),
-                "health_score":   float(d.get("health_score", 99.0)),
+                "health_score":   _as_float_or_none(d.get("health_score")),
                 "ips_suspectes":  d.get("ips_suspectes", []),
                 "attack_pattern": d.get("attack_pattern", "unknown"),
             })
         return result
     return jsonify(_cached("sessions", load))
+
+
+@app.route("/")
+def dashboard_index():
+    return send_from_directory(FRONTEND_DIR, "idps-dashboard.html")
+
+
+@app.route("/dashboard")
+def dashboard_alias():
+    return send_from_directory(FRONTEND_DIR, "idps-dashboard.html")
 
 
 @app.route("/api/pipeline/latest")
@@ -488,6 +568,166 @@ def suspicious_ips():
     return jsonify(_cached("suspicious_ips", load))
 
 
+# ─── Phase E: Trust / Performance endpoints ───────────────────────────────────
+
+def _build_trust(events: list[dict]) -> dict:
+    """
+    E.13 — Build trust score data from TRUST_COMPUTED JSONL event.
+    Falls back to safe defaults if the event isn't present yet
+    (e.g. pipeline hasn't run since Phase B was deployed).
+    """
+    trust_ev = _get_event(events, "TRUST_COMPUTED")
+    if not trust_ev:
+        return {
+            "available":             False,
+            "model_agreement":       None,
+            "false_positive_rate":   None,
+            "drift_score":           None,
+            "drift_label":           "N/A",
+            "drift_flagged":         False,
+            "stability":             "N/A",
+            "stable_signals":        None,
+            "noise_ratio":           None,
+            "ml_score_weight":       None,
+            "confidence_in_metrics": None,
+            "confidence_label":      "N/A",
+            "signals_summary":       "No TRUST_COMPUTED event found — run the pipeline once.",
+        }
+
+    return {
+        "available":             True,
+        "model_agreement":       trust_ev.get("model_agreement"),
+        "false_positive_rate":   trust_ev.get("false_positive_rate"),
+        "drift_score":           trust_ev.get("drift_score"),
+        "drift_label":           trust_ev.get("drift_label", "N/A"),
+        "drift_flagged":         bool(trust_ev.get("drift_flagged", False)),
+        "stability":             trust_ev.get("stability", "N/A"),
+        "stable_signals":        trust_ev.get("stable_signals"),
+        "noise_ratio":           trust_ev.get("noise_ratio"),
+        "ml_score_weight":       trust_ev.get("ml_score_weight"),
+        "confidence_in_metrics": trust_ev.get("confidence_in_metrics"),
+        "confidence_label":      trust_ev.get("confidence_label", "N/A"),
+        "signals_summary":       trust_ev.get("signals_summary", ""),
+        "timestamp":             trust_ev.get("timestamp", ""),
+    }
+
+
+def _build_gate_history() -> list[dict]:
+    """
+    E.15 — Read threshold_change_log.json and return last 20 gate decisions.
+    """
+    log_path = PROJECT_ROOT / "src" / "models" / "threshold_change_log.json"
+    if not log_path.exists():
+        return []
+
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+        if not isinstance(entries, list):
+            return []
+    except Exception:
+        return []
+
+    result = []
+    for e in reversed(entries[-20:]):
+        proposal  = e.get("agent_proposal", {})
+        gate      = e.get("gate_result", {})
+        compare   = e.get("comparison", {})
+        accepted  = gate.get("accepted", False)
+        ts        = e.get("timestamp", "")[:16]
+
+        # Build a compact changes summary
+        changes = []
+        for key in ("ssh_high", "web_high", "ftp_high", "kernel_high", "session_high"):
+            v = proposal.get(key)
+            if v is not None:
+                changes.append(f"{key.replace('_high', '').upper()}≥{v}")
+        if proposal.get("escalate_ips"):
+            changes.append(f"escalate={proposal['escalate_ips']}")
+        changes_str = " · ".join(changes) if changes else "escalate/suppress only"
+
+        result.append({
+            "version_id":       e.get("version_id", ""),
+            "timestamp":        ts,
+            "accepted":         accepted,
+            "decision":         "ACCEPTED" if accepted else "REVERTED",
+            "changes":          changes_str,
+            "reasoning":        proposal.get("reasoning", "")[:120],
+            "threat_level":     proposal.get("threat_level", "NORMAL"),
+            "confidence":       proposal.get("confidence"),
+            "passed_checks":    gate.get("passed_checks", []),
+            "failed_checks":    gate.get("failed_checks", []),
+            "p1_fp_rate":       compare.get("pass1_fp_rate"),
+            "p2_fp_rate":       compare.get("pass2_fp_rate"),
+            "p1_recall":        compare.get("pass1_recall"),
+            "p2_recall":        compare.get("pass2_recall"),
+            "p1_alarms":        compare.get("pass1_alarm_count"),
+            "p2_alarms":        compare.get("pass2_alarm_count"),
+            "alarm_delta":      compare.get("alarm_delta"),
+        })
+
+    return result
+
+
+def _build_data_quality(events: list[dict]) -> dict:
+    """
+    E.16 — Extract noise / data quality fields from PIPELINE_START event.
+    """
+    pipe = _get_event(events, "PIPELINE_START")
+    if not pipe:
+        return {"available": False}
+
+    noise_ratio = pipe.get("noise_ratio")
+    unique_pct  = pipe.get("unique_pct")
+    if unique_pct is None and noise_ratio is not None:
+        unique_pct = round((1.0 - float(noise_ratio)) * 100, 1)
+
+    return {
+        "available":       True,
+        "raw_count":       pipe.get("row_count"),
+        "deduped_count":   pipe.get("deduped_count"),
+        "noise_ratio":     noise_ratio,
+        "unique_pct":      unique_pct,
+        "data_quality":    pipe.get("data_quality", "N/A"),
+        "ml_score_weight": pipe.get("ml_score_weight"),
+    }
+
+
+@app.route("/api/trust")
+def trust():
+    """E.13 — Trust score / performance engine output."""
+    def load():
+        events = _latest_jsonl()
+        return _build_trust(events)
+    return jsonify(_cached("trust", load))
+
+
+@app.route("/api/gate-history")
+def gate_history():
+    """E.15 — Pass 2 gate decision history from threshold_change_log.json."""
+    def load():
+        return _build_gate_history()
+    return jsonify(_cached("gate_history", load))
+
+
+@app.route("/api/data-quality")
+def data_quality():
+    """E.16 — Data quality / noise ratio from latest PIPELINE_START event."""
+    def load():
+        events = _latest_jsonl()
+        return _build_data_quality(events)
+    return jsonify(_cached("data_quality", load))
+
+
+@app.route("/api/backtest-history")
+def backtest_history():
+    """Layer 5 fix — Historical backtest accuracy from long_term_memory.json."""
+    def load():
+        mem = _load_memory()
+        return list(reversed(mem.get("backtest_history", [])))
+    return jsonify(_cached("backtest_history", load))
+
+
 # ─── CORS preflight ───────────────────────────────────────────────────────────
 @app.after_request
 def after_request(response):
@@ -505,6 +745,7 @@ if __name__ == "__main__":
     print(f"  Project root : {PROJECT_ROOT}")
     print(f"  Memory file  : {MEMORY_FILE} ({'EXISTS' if MEMORY_FILE.exists() else 'NOT FOUND'})")
     print(f"  Output dir   : {OUTPUT_DIR} ({'EXISTS' if OUTPUT_DIR.exists() else 'NOT FOUND'})")
+    print(f"  Frontend dir : {FRONTEND_DIR} ({'EXISTS' if FRONTEND_DIR.exists() else 'NOT FOUND'})")
     jsonl_files = sorted(glob.glob(str(OUTPUT_DIR / "session_*.jsonl")))
     print(f"  JSONL files  : {len(jsonl_files)} found")
     if jsonl_files:
@@ -522,9 +763,11 @@ if __name__ == "__main__":
     print("    GET /api/decisions       -> agent decisions")
     print("    GET /api/logs/stream     -> last 60 log lines")
     print("    GET /api/suspicious-ips  -> known bad IPs")
+    print("    GET /api/trust           -> trust score / performance panel (Phase E)")
+    print("    GET /api/gate-history    -> Pass 2 gate decisions audit log (Phase E)")
+    print("    GET /api/data-quality    -> noise ratio + data quality (Phase E)")
     print()
-    print("  Open frontend/idps-dashboard.html in your browser.")
-    print("  Dashboard auto-detects this server and switches from")
-    print("  MOCK DATA -> API LIVE in the top bar.")
+    print("  Open http://localhost:5000/ in your browser.")
+    print("  Flask now serves both the dashboard frontend and the API.")
     print()
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5000, debug=False)

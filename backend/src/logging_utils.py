@@ -33,6 +33,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 
@@ -59,6 +60,17 @@ def _safe(val: Any, max_len: int = 300) -> Any:
     return text[:max_len] + ("…" if len(text) > max_len else "")
 
 
+def _safe_console_print(message: str, *, stream: Any = None) -> None:
+    target = stream or sys.stdout
+    encoding = getattr(target, "encoding", None) or "utf-8"
+    text = str(message)
+    try:
+        print(text, file=target)
+    except UnicodeEncodeError:
+        sanitized = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        print(sanitized, file=target)
+
+
 def _threshold_row(snap: dict) -> dict:
     """Return a compact, flat dict of the thresholds from one snapshot."""
     return {
@@ -79,6 +91,19 @@ def _threshold_row(snap: dict) -> dict:
         "escalate_ips": snap.get("escalate_ips", []),
         "suppress_ips": snap.get("suppress_ips", []),
     }
+
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_OUTPUT_DIR = _BACKEND_ROOT / "output"
+
+
+def _resolve_output_dir(output_dir: str | os.PathLike[str] | None) -> Path:
+    if output_dir is None:
+        return _DEFAULT_OUTPUT_DIR
+    candidate = Path(output_dir)
+    if not candidate.is_absolute():
+        candidate = _BACKEND_ROOT / candidate
+    return candidate
 
 
 # ── SessionLogger ──────────────────────────────────────────────────────────────
@@ -110,18 +135,25 @@ class SessionLogger:
     EV_PASS2_COMPLETE        = "PASS2_COMPLETE"
     EV_AGENTS_COMPLETE       = "AGENTS_COMPLETE"
     EV_SESSION_SUMMARY       = "SESSION_SUMMARY"
+    EV_TRUST_COMPUTED        = "TRUST_COMPUTED"      # Phase B — performance engine
+    EV_SESSION_INIT          = "SESSION_INIT"
     EV_WARNING               = "WARNING"
     EV_ERROR                 = "ERROR"
 
-    def __init__(self, output_dir: str = "output"):
-        os.makedirs(output_dir, exist_ok=True)
+    def __init__(self, output_dir: str | os.PathLike[str] | None = None):
+        resolved_output_dir = _resolve_output_dir(output_dir)
+        os.makedirs(resolved_output_dir, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.session_id   = ts
-        self.output_path  = os.path.join(output_dir, f"session_{ts}.jsonl")
+        self.output_path  = str(resolved_output_dir / f"session_{ts}.jsonl")
         self._file        = open(self.output_path, "a", encoding="utf-8")
         self._session_start = datetime.now(timezone.utc)
         # Print to stdout so operators see the file path immediately
-        print(f"[LOG] Session logger → {self.output_path}")
+        _safe_console_print(f"[LOG] Session logger -> {self.output_path}")
+        self._emit(self.EV_SESSION_INIT, {
+            "status": "logger_created",
+            "note": "Session file created before ingestion starts.",
+        })
 
     # ── Core emit ─────────────────────────────────────────────────────────────
 
@@ -140,7 +172,7 @@ class SessionLogger:
         # Human-readable stdout echo
         alarm_count = payload.get("alarm_count", "")
         alarm_part  = f" | alarms={alarm_count}" if alarm_count != "" else ""
-        print(f"[LOG:{event_type}]{alarm_part} → {self.output_path}")
+        _safe_console_print(f"[LOG:{event_type}]{alarm_part} -> {self.output_path}")
 
     # ── Public event methods ──────────────────────────────────────────────────
 
@@ -149,16 +181,31 @@ class SessionLogger:
         row_count: int,
         server_count: int = 3,
         data_sources: list[str] | None = None,
+        # Phase 0.4 — noise + data quality fields
+        deduped_count: int | None = None,
+        noise_ratio: float | None = None,
+        data_quality: str | None = None,
+        ml_score_weight: float | None = None,
     ) -> None:
-        print(f"\n{'='*60}\n   HYBRID IDPS PIPELINE — START\n{'='*60}")
+        unique_pct = round((1.0 - (noise_ratio or 0.0)) * 100, 1)
+        _safe_console_print(f"\n{'='*60}\n   HYBRID IDPS PIPELINE - START\n{'='*60}")
+        _safe_console_print(
+            f"[DATA] raw={row_count} | deduped={deduped_count or row_count} | "
+            f"quality={data_quality or 'N/A'} | ml_weight={ml_score_weight or 1.0:.2f}"
+        )
         self._emit(self.EV_PIPELINE_START, {
-            "row_count":    row_count,
-            "server_count": server_count,
-            "data_sources": data_sources or [],
+            "row_count":       row_count,
+            "server_count":    server_count,
+            "data_sources":    data_sources or [],
+            "deduped_count":   deduped_count if deduped_count is not None else row_count,
+            "noise_ratio":     noise_ratio if noise_ratio is not None else 0.0,
+            "unique_pct":      unique_pct,
+            "data_quality":    data_quality or "N/A",
+            "ml_score_weight": ml_score_weight if ml_score_weight is not None else 1.0,
         })
 
     def metrics_computed(self, metrics: dict) -> None:
-        print(
+        _safe_console_print(
             f"[METRICS] Health: {metrics.get('health_score')}% | "
             f"Alert: {metrics.get('alert_status')} | "
             f"Pattern: {metrics.get('attack_pattern')} | "
@@ -189,12 +236,12 @@ class SessionLogger:
             by_domain[a.get("domain", "OTHER")] = by_domain.get(a.get("domain", "OTHER"), 0) + 1
             by_sev[a.get("severite", "?")] = by_sev.get(a.get("severite", "?"), 0) + 1
 
-        print(f"[IDPS] Pass 1 complete: {len(alarmes)} alarm(s)")
+        _safe_console_print(f"[IDPS] Pass 1 complete: {len(alarmes)} alarm(s)")
         for msg in top5:
             enc = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
-            print(f"   → {msg.encode(enc, 'replace').decode(enc)}")
+            _safe_console_print(f"   -> {msg.encode(enc, 'replace').decode(enc)}")
         if len(alarmes) > 5:
-            print(f"   ... and {len(alarmes)-5} more")
+            _safe_console_print(f"   ... and {len(alarmes)-5} more")
 
         self._emit(self.EV_PASS1_COMPLETE, {
             "alarm_count":        len(alarmes),
@@ -211,9 +258,9 @@ class SessionLogger:
         """
         summary   = cfg_obj.summary()
         reasoning = str(cfg_obj.reasoning)[:200]
-        print(f"[HYBRID] Config  : {summary}")
-        print(f"[HYBRID] Threat  : {cfg_obj.threat_level}")
-        print(f"[HYBRID] Reasoning: {reasoning}")
+        _safe_console_print(f"[HYBRID] Config  : {summary}")
+        _safe_console_print(f"[HYBRID] Threat  : {cfg_obj.threat_level}")
+        _safe_console_print(f"[HYBRID] Reasoning: {reasoning}")
 
         self._emit(self.EV_DYNAMIC_CONFIG_ISSUED, {
             "config_summary":    summary,
@@ -233,7 +280,7 @@ class SessionLogger:
         })
 
     def dynamic_config_default(self) -> None:
-        print("[IDPS] Agent issued no overrides — Pass 1 results are final")
+        _safe_console_print("[IDPS] Agent issued no overrides - Pass 1 results are final")
         self._emit(self.EV_DYNAMIC_CONFIG_DEFAULT, {
             "alarm_count": None,
             "note": "orchestrator found no threshold adjustments necessary",
@@ -258,14 +305,14 @@ class SessionLogger:
         p1_msgs = {a.get("message", "") for a in alarmes_pass1}
         new_alarms = [a for a in alarmes_final if a.get("message", "") not in p1_msgs]
 
-        print(
+        _safe_console_print(
             f"[IDPS] Pass 2 complete: {len(alarmes_final)} alarms "
             f"({delta_sign} vs Pass 1)"
         )
         for a in new_alarms[:3]:
             enc = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
             msg = str(a.get("message", ""))[:120]
-            print(f"   NEW → {msg.encode(enc, 'replace').decode(enc)}")
+            _safe_console_print(f"   NEW -> {msg.encode(enc, 'replace').decode(enc)}")
 
         self._emit(self.EV_PASS2_COMPLETE, {
             "alarm_count":         len(alarmes_final),
@@ -281,7 +328,7 @@ class SessionLogger:
 
     def agents_complete(self, result: Any) -> None:
         result_str = str(result)[:400]
-        print(f"[AGENTS] Crew complete. Excerpt: {result_str[:80]}…")
+        _safe_console_print(f"[AGENTS] Crew complete. Excerpt: {result_str[:80]}...")
         self._emit(self.EV_AGENTS_COMPLETE, {
             "result_excerpt": result_str,
         })
@@ -301,17 +348,17 @@ class SessionLogger:
         snap_rows = [_threshold_row(s) for s in threshold_snapshots]
 
         # Build stdout audit trail
-        print(f"\n{'='*60}")
-        print("   HYBRID ANALYSIS COMPLETE")
-        print(f"   Pass 1 alarms : {len(alarmes_pass1)}")
-        print(f"   Pass 2 ran    : {pass2_ran}")
-        print(f"   Final alarms  : {len(alarmes_final)}")
+        _safe_console_print(f"\n{'='*60}")
+        _safe_console_print("   HYBRID ANALYSIS COMPLETE")
+        _safe_console_print(f"   Pass 1 alarms : {len(alarmes_pass1)}")
+        _safe_console_print(f"   Pass 2 ran    : {pass2_ran}")
+        _safe_console_print(f"   Final alarms  : {len(alarmes_final)}")
         if dynamic_config:
-            print(f"   Agent config  : {dynamic_config.summary()}")
-        print(f"   Elapsed       : {elapsed_s:.1f}s")
-        print("\n   THRESHOLD AUDIT TRAIL:")
+            _safe_console_print(f"   Agent config  : {dynamic_config.summary()}")
+        _safe_console_print(f"   Elapsed       : {elapsed_s:.1f}s")
+        _safe_console_print("\n   THRESHOLD AUDIT TRAIL:")
         for snap in threshold_snapshots:
-            print(
+            _safe_console_print(
                 f"   Pass {snap['pass']} ({snap['issued_by']}): "
                 f"SSH≥{snap['ssh_high']}/{snap['ssh_med']} "
                 f"WEB≥{snap['web_high']}/{snap['web_med']} "
@@ -321,7 +368,7 @@ class SessionLogger:
                 f"window={snap['corr_window']}min "
                 f"threat={snap['threat_level']} conf={snap.get('confidence', 1):.0%}"
             )
-        print(f"{'='*60}")
+        _safe_console_print(f"{'='*60}")
 
         self._emit(self.EV_SESSION_SUMMARY, {
             "alarm_count":         len(alarmes_final),
@@ -337,13 +384,43 @@ class SessionLogger:
             "agent_config_summary": dynamic_config.summary() if dynamic_config else "default",
         })
 
+    def trust_computed(self, trust: dict) -> None:
+        """
+        Phase B — Emit TRUST_COMPUTED event to JSONL.
+        Called right after Pass 1 completes in main.py.
+        Dashboard polls this event to populate the Performance panel.
+        """
+        label = trust.get("confidence_label", "?")
+        conf  = trust.get("confidence_in_metrics", 0.0)
+        _safe_console_print(
+            f"[TRUST] confidence={conf:.3f} ({label}) | "
+            f"agreement={trust.get('model_agreement', 0):.2f} | "
+            f"fp_rate={trust.get('false_positive_rate', 0):.2f} | "
+            f"drift={trust.get('drift_score', 0):.3f}({trust.get('drift_label', '?')}) | "
+            f"stability={trust.get('stability', '?')}"
+        )
+        self._emit(self.EV_TRUST_COMPUTED, {
+            "model_agreement":       trust.get("model_agreement"),
+            "false_positive_rate":   trust.get("false_positive_rate"),
+            "drift_score":           trust.get("drift_score"),
+            "drift_label":           trust.get("drift_label"),
+            "drift_flagged":         trust.get("drift_flagged"),
+            "stability":             trust.get("stability"),
+            "stable_signals":        trust.get("stable_signals"),
+            "noise_ratio":           trust.get("noise_ratio"),
+            "ml_score_weight":       trust.get("ml_score_weight"),
+            "confidence_in_metrics": conf,
+            "confidence_label":      label,
+            "signals_summary":       trust.get("signals_summary"),
+        })
+
     def warning(self, source: str, message: str) -> None:
-        print(f"[WARN:{source}] {message}")
+        _safe_console_print(f"[WARN:{source}] {message}")
         self._emit(self.EV_WARNING, {"source": source, "message": message[:300]})
 
     def error(self, source: str, exc: Exception) -> None:
         msg = f"{type(exc).__name__}: {exc}"
-        print(f"[ERROR:{source}] {msg}", file=sys.stderr)
+        _safe_console_print(f"[ERROR:{source}] {msg}", stream=sys.stderr)
         self._emit(self.EV_ERROR, {"source": source, "error": msg[:300]})
 
     def close(self) -> None:
@@ -351,4 +428,4 @@ class SessionLogger:
             self._file.close()
         except Exception:
             pass
-        print(f"[LOG] Session log closed → {self.output_path}")
+        _safe_console_print(f"[LOG] Session log closed -> {self.output_path}")

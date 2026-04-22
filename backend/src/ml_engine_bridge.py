@@ -32,9 +32,11 @@ Preserved from v3:
 from __future__ import annotations
 
 import json
+import os
 import pandas as pd
 from datetime import datetime, timedelta
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 from src.adapter import normalize
@@ -51,6 +53,10 @@ from src.hybrid_config import DynamicConfig
 HIGH_RISK_THRESHOLD  = 38
 MED_RISK_THRESHOLD   = 22
 CORR_TIME_WINDOW_MIN = 30
+
+# ── Phase C.9: Audit log path ─────────────────────────────────────────────────
+_MODELS_DIR      = "src/models"
+CHANGE_LOG_PATH  = os.path.join(_MODELS_DIR, "threshold_change_log.json")
 
 
 # ── Threshold snapshot helper ─────────────────────────────────────────────────
@@ -247,6 +253,191 @@ def _run_engines(
     return results
 
 
+# ── Phase C.8: A/B gate helpers ───────────────────────────────────────────────
+
+def _compute_pass_metrics(alarmes: list[dict]) -> dict[str, float]:
+    """
+    Derive comparable metrics from an alarm list for the A/B gate.
+
+    Returns:
+        fp_rate   — fraction of alarms flagged by only 1 model (0–1)
+        recall    — fraction of real IPs that were flagged (proxy: non-SYSTEM alarms / total IPs seen)
+        alarm_count — raw count of real (non-SYSTEM) alarms
+        avg_score — mean alarm score, used as proxy for detection intensity
+    """
+    real = [a for a in alarmes if a.get('ip', 'SYSTEM') != 'SYSTEM']
+    total = len(real)
+
+    isolated = [
+        a for a in real
+        if a.get('models_agreed', 4) <= 1 or a.get('agreement_label') == 'LOW'
+    ]
+    fp_rate = round(len(isolated) / max(total, 1), 4)
+
+    # Recall proxy: what fraction of flagged IPs were at CRITIQUE level?
+    # (We can't know true positives without ground truth, so we use severity ratio
+    #  as a relative measure — lower severity ratio = lower recall proxy)
+    critiques = [a for a in real if a.get('severite') == 'CRITIQUE']
+    recall = round(len(critiques) / max(total, 1), 4)
+
+    avg_score = round(
+        sum(float(a.get('score', 0)) for a in real) / max(total, 1), 4
+    )
+
+    return {
+        'fp_rate':     fp_rate,
+        'recall':      recall,
+        'alarm_count': total,
+        'avg_score':   avg_score,
+    }
+
+
+def _ab_gate(
+    p1_metrics: dict[str, float],
+    p2_metrics: dict[str, float],
+    trust_score: float = 0.5,
+    trust_label: str = "UNCERTAIN",
+) -> tuple[bool, str, list[str], list[str]]:
+    """
+    Step 2 — Trust-score gate (replaces the 3-check raw-metric gate).
+
+    Decision Governance: the gate asks ONE question —
+      "Is the system trustworthy enough to apply AI-driven changes?"
+
+    Rules (deterministic, no LLM):
+      trust_score > 0.80  → FULL ACCEPT  — apply Pass 2 alarms + threshold changes
+      trust_score 0.50–0.80 → PARTIAL    — apply escalate_ips only, block threshold changes
+      trust_score < 0.50  → REJECT       — revert to Pass 1, ignore AI proposal entirely
+
+    The raw metrics (fp_rate, recall, alarm_count) are still computed and logged
+    for the audit trail but no longer drive the accept/reject decision.
+
+    Returns:
+        (accepted, mode, passed_checks, failed_checks)
+        accepted      — True if FULL or PARTIAL (Pass 2 results used)
+        mode          — "FULL" | "PARTIAL" | "REJECTED"
+        passed_checks — what the gate found acceptable
+        failed_checks — what the gate found problematic
+    """
+    passed: list[str] = []
+    failed: list[str] = []
+
+    # Primary decision — trust score
+    if trust_score > 0.80:
+        mode = "FULL"
+        passed.append(f"TRUST_HIGH ({trust_score:.3f} > 0.80 [{trust_label}]) — full Pass 2 applied")
+    elif trust_score >= 0.50:
+        mode = "PARTIAL"
+        passed.append(f"TRUST_MEDIUM ({trust_score:.3f} ∈ [0.50, 0.80] [{trust_label}]) — escalate_ips only")
+        failed.append("THRESHOLD_CHANGES_BLOCKED — trust < 0.80, only IP escalations allowed")
+    else:
+        mode = "REJECTED"
+        failed.append(f"TRUST_LOW ({trust_score:.3f} < 0.50 [{trust_label}]) — Pass 2 fully rejected")
+
+    # Secondary info — raw metrics included in audit trail but don't drive the decision
+    fp_delta = p2_metrics['fp_rate'] - p1_metrics['fp_rate']
+    alarm_delta = p2_metrics['alarm_count'] - p1_metrics['alarm_count']
+    passed.append(
+        f"METRICS_INFO fp_delta={fp_delta:+.3f} alarm_delta={alarm_delta:+d} "
+        f"p1_recall={p1_metrics['recall']:.3f} p2_recall={p2_metrics['recall']:.3f}"
+    )
+
+    accepted = mode in ("FULL", "PARTIAL")
+    return accepted, mode, passed, failed
+
+
+def _write_change_log(
+    cfg: DynamicConfig,
+    p1_metrics: dict,
+    p2_metrics: dict,
+    accepted: bool,
+    gate_mode: str,
+    passed_checks: list[str],
+    failed_checks: list[str],
+    alarm_delta: int,
+    trust_score: float = 0.5,
+    trust_label: str = "UNCERTAIN",
+) -> str:
+    """
+    Phase C.9 — Write every Pass 2 decision to threshold_change_log.json.
+    Creates the file if it doesn't exist. Keeps last 200 entries.
+    Returns the version_id (timestamp string) for the written entry.
+    """
+    version_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+    entry = {
+        "version_id":    version_id,
+        "timestamp":     datetime.now().isoformat(),
+        "agent_proposal": {
+            "ssh_high":  cfg.ssh_high_risk_threshold,
+            "web_high":  cfg.web_high_risk_threshold,
+            "ftp_high":  cfg.ftp_high_risk_threshold,
+            "kernel_high": cfg.kernel_high_risk_threshold,
+            "session_high": cfg.session_high_risk_threshold,
+            "escalate_ips": cfg.escalate_ips,
+            "suppress_ips": cfg.suppress_ips,
+            "rerun_engines": cfg.rerun_engines,
+            "threat_level": cfg.threat_level,
+            "confidence":  cfg.confidence,
+            "reasoning":   (cfg.reasoning or "")[:300],
+        },
+        "gate_result": {
+            "accepted":      accepted,
+            "gate_mode":     gate_mode,      # FULL | PARTIAL | REJECTED
+            "decision":      (
+                "FULL_ACCEPT"    if gate_mode == "FULL"    else
+                "PARTIAL_ACCEPT" if gate_mode == "PARTIAL" else
+                "REVERTED_TO_PASS1"
+            ),
+            "trust_score":   trust_score,
+            "trust_label":   trust_label,
+            "passed_checks": passed_checks,
+            "failed_checks": failed_checks,
+        },
+        "comparison": {
+            "pass1_fp_rate":     p1_metrics.get("fp_rate"),
+            "pass2_fp_rate":     p2_metrics.get("fp_rate"),
+            "pass1_recall":      p1_metrics.get("recall"),
+            "pass2_recall":      p2_metrics.get("recall"),
+            "pass1_alarm_count": p1_metrics.get("alarm_count"),
+            "pass2_alarm_count": p2_metrics.get("alarm_count"),
+            "alarm_delta":       alarm_delta,
+        },
+    }
+
+    os.makedirs(_MODELS_DIR, exist_ok=True)
+    log_path = Path(CHANGE_LOG_PATH)
+
+    existing: list[dict] = []
+    if log_path.exists():
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            if not isinstance(existing, list):
+                existing = []
+        except Exception:
+            existing = []
+
+    existing.append(entry)
+    existing = existing[-200:]
+
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(existing, f, indent=2, ensure_ascii=False)
+
+    mode_str = {
+        "FULL":     "✅ FULL ACCEPT",
+        "PARTIAL":  "⚠️  PARTIAL (escalate only)",
+        "REJECTED": "❌ REVERTED TO PASS 1",
+    }.get(gate_mode, gate_mode)
+
+    print(f"\n[C.9] Gate log: {mode_str} | trust={trust_score:.3f} [{trust_label}] | version={version_id}")
+    if failed_checks:
+        for fc in failed_checks:
+            print(f"      ✗ {fc}")
+
+    return version_id
+
+
 # ── Main entry point ───────────────────────────────────────────────────────────
 
 def detecter_anomalies(
@@ -293,12 +484,16 @@ def detecter_anomalies(
     alarmes_p1 = _collect_all_alarms(p1, corr_map_p1, prediction, threshold_snapshot=p1_snapshot)
     threshold_snapshots = [p1_snapshot]
 
-    # ── PASS 2: agent-adjusted thresholds (only if config has overrides) ─
+    # ── PASS 2: shadow mode — results NEVER applied automatically ────────────
+    # C.7: Pass 2 runs in shadow. Its alarms are stored separately.
+    # C.8: A deterministic 3-check math gate decides if they replace Pass 1.
+    # C.9: Every decision is written to threshold_change_log.json.
     if not cfg.is_default():
-        print(f"\n[BRIDGE v4] Pass 2 (agent config: {cfg.summary()})")
-        print(f"[BRIDGE v4] Reasoning: {cfg.reasoning[:120]}")
+        print(f"\n[BRIDGE v5] Pass 2 SHADOW RUN (agent config: {cfg.summary()})")
+        print(f"[BRIDGE v5] Reasoning: {cfg.reasoning[:120]}")
+        print(f"[BRIDGE v5] Pass 2 results are NOT applied until the gate approves.")
 
-        engines_to_rerun = cfg.rerun_engines if cfg.rerun_engines else None  # None = all
+        engines_to_rerun = cfg.rerun_engines if cfg.rerun_engines else None
         p2 = _run_engines(df_norm, cfg, engines_filter=engines_to_rerun)
 
         p2_snapshot = _build_threshold_snapshot(cfg, pass_number=2)
@@ -308,28 +503,121 @@ def detecter_anomalies(
             p2['sess_result'], p2['kernel_meta'], df_norm,
             window_min=window,
         )
-        alarmes_p2 = _collect_all_alarms(p2, corr_map_p2, prediction, threshold_snapshot=p2_snapshot)
+        alarmes_shadow = _collect_all_alarms(p2, corr_map_p2, prediction, threshold_snapshot=p2_snapshot)
         threshold_snapshots.append(p2_snapshot)
 
-        # Merge: for each IP, keep the highest score from either pass
-        alarmes = _merge_passes(alarmes_p1, alarmes_p2, cfg)
-        corr_map = _merge_corr_maps(corr_map_p1, corr_map_p2)
-        engines_final = _merge_engine_results(p1, p2)
+        # ── Step 2: Compute pass metrics, read trust score, run gate ─────────
+        p1_metrics = _compute_pass_metrics(alarmes_p1)
+        p2_metrics = _compute_pass_metrics(alarmes_shadow)
+
+        # Read the trust score computed in main.py after Pass 1
+        # (stored in ip_profiler globals so bridge doesn't need a circular import)
+        try:
+            import src.ip_profiler as _prof
+            trust_score = getattr(_prof, '_current_trust_score', 0.5)
+            trust_label = getattr(_prof, '_current_trust_label', 'UNCERTAIN')
+        except Exception:
+            trust_score, trust_label = 0.5, 'UNCERTAIN'
+
+        accepted, gate_mode, passed_checks, failed_checks = _ab_gate(
+            p1_metrics, p2_metrics, trust_score, trust_label
+        )
+
+        alarm_delta = p2_metrics['alarm_count'] - p1_metrics['alarm_count']
+
+        # ── C.9: Write audit log entry ────────────────────────────────────────
+        version_id = _write_change_log(
+            cfg, p1_metrics, p2_metrics,
+            accepted, gate_mode, passed_checks, failed_checks, alarm_delta,
+            trust_score=trust_score, trust_label=trust_label,
+        )
+        p2_snapshot['gate_accepted']   = accepted
+        p2_snapshot['gate_mode']       = gate_mode
+        p2_snapshot['gate_version_id'] = version_id
+        p2_snapshot['gate_passed']     = passed_checks
+        p2_snapshot['gate_failed']     = failed_checks
+        p2_snapshot['trust_score']     = trust_score
+
+        if gate_mode == "FULL":
+            # High trust → apply everything: Pass 2 alarms + threshold changes
+            print(f"\n[BRIDGE v5] Gate FULL ACCEPT (trust={trust_score:.3f}) — Pass 2 applied (delta={alarm_delta:+d})")
+            alarmes       = alarmes_shadow
+            corr_map      = corr_map_p2
+            engines_final = _merge_engine_results(p1, p2)
+            alarmes.append({
+                'timestamp': datetime.now().isoformat(),
+                'type':      'GATE_ACCEPTED',
+                'ip':        'SYSTEM', 'severite': 'INFO', 'action': 'MONITOR',
+                'score':     0.0, 'country': 'N/A', 'failures': 0,
+                'message': (
+                    f"✅ GATE FULL ACCEPT | trust={trust_score:.3f} [{trust_label}] | "
+                    f"delta={alarm_delta:+d} | version={version_id} | {cfg.summary()}"
+                ),
+                'feature': 'ab_gate', 'domain': 'GATE', 'version_id': version_id,
+                'gate_mode': gate_mode,
+            })
+
+        elif gate_mode == "PARTIAL":
+            # Medium trust → apply escalate_ips only, keep Pass 1 thresholds
+            print(f"\n[BRIDGE v5] Gate PARTIAL (trust={trust_score:.3f}) — escalate_ips applied, threshold changes blocked")
+            alarmes       = alarmes_p1   # keep Pass 1 alarms
+            corr_map      = corr_map_p1
+            engines_final = p1
+            # Apply only the IP escalations from Pass 2 shadow results
+            if cfg.escalate_ips:
+                alarmes = _apply_escalations(alarmes, cfg.escalate_ips)
+                print(f"[BRIDGE v5] PARTIAL: escalated {cfg.escalate_ips}")
+            alarmes.append({
+                'timestamp': datetime.now().isoformat(),
+                'type':      'GATE_PARTIAL',
+                'ip':        'SYSTEM', 'severite': 'INFO', 'action': 'MONITOR',
+                'score':     0.0, 'country': 'N/A', 'failures': 0,
+                'message': (
+                    f"⚠️ GATE PARTIAL | trust={trust_score:.3f} [{trust_label}] | "
+                    f"escalate_ips={cfg.escalate_ips} applied | threshold changes blocked | "
+                    f"version={version_id}"
+                ),
+                'feature': 'ab_gate', 'domain': 'GATE', 'version_id': version_id,
+                'gate_mode': gate_mode,
+            })
+
+        else:
+            # Low trust → reject everything, revert to Pass 1
+            print(f"\n[BRIDGE v5] Gate REJECTED (trust={trust_score:.3f} < 0.50) — reverting to Pass 1")
+            alarmes       = alarmes_p1
+            corr_map      = corr_map_p1
+            engines_final = p1
+            alarmes.append({
+                'timestamp': datetime.now().isoformat(),
+                'type':      'GATE_REJECTED',
+                'ip':        'SYSTEM', 'severite': 'INFO', 'action': 'MONITOR',
+                'score':     0.0, 'country': 'N/A', 'failures': 0,
+                'message': (
+                    f"❌ GATE REJECTED | trust={trust_score:.3f} [{trust_label}] | "
+                    f"Pass 2 fully reverted | version={version_id}"
+                ),
+                'feature': 'ab_gate', 'domain': 'GATE', 'version_id': version_id,
+                'gate_mode': gate_mode,
+            })
     else:
-        print("[BRIDGE v4] No agent config overrides — single pass only")
-        alarmes  = alarmes_p1
-        corr_map = corr_map_p1
+        print("[BRIDGE v5] No agent config overrides — single pass only")
+        alarmes       = alarmes_p1
+        corr_map      = corr_map_p1
         engines_final = p1
 
-    # ── Force-escalate IPs the agent explicitly flagged ───────────────────
-    if cfg.escalate_ips:
-        alarmes = _apply_escalations(alarmes, cfg.escalate_ips)
-        print(f"[BRIDGE v4] Force-escalated: {cfg.escalate_ips}")
+    # ── Force-escalate / suppress — only for FULL gate acceptance ────────────
+    # PARTIAL mode already applied escalate_ips inside the gate block above.
+    # REJECTED mode ignores all agent decisions.
+    # Single-pass sessions (no Pass 2) still honour these if set.
+    _gate_mode = locals().get('gate_mode', 'NONE')   # 'NONE' = Pass 2 didn't run
 
-    # ── Suppress IPs the agent flagged as false positives ─────────────────
-    if cfg.suppress_ips:
+    if cfg.escalate_ips and _gate_mode in ('FULL', 'NONE'):
+        alarmes = _apply_escalations(alarmes, cfg.escalate_ips)
+        print(f"[BRIDGE v5] Force-escalated: {cfg.escalate_ips}")
+
+    if cfg.suppress_ips and _gate_mode in ('FULL', 'NONE'):
         alarmes = [a for a in alarmes if _clean_ip(a.get('ip')) not in cfg.suppress_ips]
-        print(f"[BRIDGE v4] Suppressed: {cfg.suppress_ips}")
+        print(f"[BRIDGE v5] Suppressed: {cfg.suppress_ips}")
 
     alarmes = _apply_correlation_bonus(alarmes)
     alarmes.sort(key=lambda a: a.get('score', 0), reverse=True)
@@ -353,12 +641,40 @@ def detecter_anomalies(
     chain_hits = [a for a in alarmes if a.get('domain') == 'CHAIN']
     multi_vec  = [i for i in corr_map.values() if i['vector_count'] >= 2]
 
-    print(f"\n[BRIDGE v4] Summary:")
+    # ── A.2: False positive score (isolated anomaly rate) ─────────────────────
+    # fp_score = alarms flagged by only 1 model / total alarms
+    # High value → models disagree → low reliability → used by Phase D gate
+    real_alarmes = [a for a in alarmes if a.get('ip', 'SYSTEM') != 'SYSTEM']
+    total_alarms = len(real_alarmes)
+    isolated     = [a for a in real_alarmes
+                    if a.get('models_agreed', 4) <= 1 or a.get('agreement_label') == 'LOW']
+    fp_score     = round(len(isolated) / max(total_alarms, 1), 4)
+
+    # Attach fp_score + session agreement to each alarm for downstream use
+    session_agreement = (
+        sum(a.get('model_agreement', 1.0) for a in real_alarmes) / max(total_alarms, 1)
+    )
+    for a in alarmes:
+        if 'fp_score_session' not in a:
+            a['fp_score_session'] = fp_score
+
+    print(f"\n[A.2] Session FP score (isolated anomaly rate): {fp_score:.3f} "
+          f"({len(isolated)}/{total_alarms} alarms flagged by only 1 model)")
+
+    print(f"\n[BRIDGE v5] Summary:")
     print(f"  Unified anomaly rows : {len(df_anomalies)}")
     print(f"  Alarms generated     : {len(alarmes)}")
     print(f"  Correlated incidents : {len(multi_vec)}")
     print(f"  Attack chains        : {len(chain_hits)}")
-    print(f"  Agent config pass    : {'Pass 2 ran' if not cfg.is_default() else 'Pass 1 only'}")
+    print(f"  Model agreement avg  : {session_agreement:.3f}")
+    print(f"  FP score (isolated)  : {fp_score:.3f}")
+    gate_info = "Pass 1 only (no overrides)"
+    if len(threshold_snapshots) > 1:
+        snap2    = threshold_snapshots[1]
+        gmode    = snap2.get('gate_mode', '?')
+        gtrust   = snap2.get('trust_score', '?')
+        gate_info = f"Pass 2 gate={gmode} trust={gtrust}"
+    print(f"  Gate decision        : {gate_info}")
     print(f"  Threshold passes     : {len(threshold_snapshots)}")
     for snap in threshold_snapshots:
         print(f"    Pass {snap['pass']} ({snap['issued_by']}): "
@@ -367,6 +683,12 @@ def detecter_anomalies(
     if perf:
         print(f"  SSH IPs analyzed     : {perf.get('total_ips', 0)}")
         print(f"  SSH blocked          : {perf.get('blocked_ips', 0)}")
+
+    # Attach session-level A.1+A.2 metrics to threshold_snapshots[0] for JSONL
+    if threshold_snapshots:
+        threshold_snapshots[0]['session_model_agreement'] = round(session_agreement, 4)
+        threshold_snapshots[0]['session_fp_score']        = fp_score
+        threshold_snapshots[0]['session_alarm_count']     = total_alarms
 
     return df_annotated, df_anomalies, alarmes, threshold_snapshots
 
@@ -528,6 +850,16 @@ def _collect_all_alarms(
     if threshold_snapshot:
         for a in alarmes:
             a.setdefault("threshold_snapshot", threshold_snapshot)
+
+    # Fix 2: Bridge alarms come from multi-engine consensus — treat as high agreement.
+    # anomaly_detection.py sets models_agreed per-IP from the C2 vote matrix.
+    # Bridge alarms don't have that, so we default to 4/4 (all engines that fired agree).
+    # This prevents model_agreement from being 0.000 in the trust score.
+    for a in alarmes:
+        a.setdefault("models_agreed",   4)
+        a.setdefault("model_agreement", 1.0)
+        a.setdefault("agreement_label", "HIGH")
+        a.setdefault("fp_score_session", 0.0)
 
     return alarmes
 

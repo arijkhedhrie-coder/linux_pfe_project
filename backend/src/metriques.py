@@ -303,3 +303,105 @@ def get_summary_for_detector(
         "is_scheduled_attack": temporal.get("is_scheduled", False),
         "peak_attack_hour": temporal.get("peak_hour", -1),
     }
+
+
+# ── A.3: Drift score ─────────────────────────────────────────────────────────
+def compute_drift_score(
+    current_anomaly_rate: float,
+    memory_file: str = "long_term_memory.json",
+) -> dict[str, Any]:
+    """
+    A.3 — Drift score: measures how much the system's anomaly rate has shifted
+    compared to the previous session.
+
+    drift = abs(current_anomaly_rate - previous_anomaly_rate)
+
+    Thresholds:
+      drift < 0.05  → STABLE   — normal session-to-session variation
+      drift < 0.15  → MODERATE — worth watching
+      drift >= 0.15 → HIGH     — system behavior has changed significantly
+
+    Returns a dict with:
+      drift_score, previous_anomaly_rate, drift_label, drift_flagged
+    """
+    import json
+    from pathlib import Path
+
+    result: dict[str, Any] = {
+        "drift_score":           0.0,
+        "current_anomaly_rate":  round(current_anomaly_rate, 4),
+        "previous_anomaly_rate": None,
+        "drift_label":           "STABLE",
+        "drift_flagged":         False,
+        "sessions_compared":     0,
+    }
+
+    # Try to load previous session's anomaly rate from long_term_memory.json
+    mem_path = Path(memory_file)
+    if not mem_path.exists():
+        # Also try relative path from project root
+        for candidate in ["long_term_memory.json", "../long_term_memory.json",
+                          "backend/long_term_memory.json"]:
+            p = Path(candidate)
+            if p.exists():
+                mem_path = p
+                break
+        else:
+            return result  # no memory yet — first session
+
+    try:
+        with open(mem_path, "r", encoding="utf-8", errors="replace") as f:
+            memory = json.load(f)
+    except Exception:
+        return result
+
+    sessions = memory.get("sessions", [])
+    if not sessions:
+        return result
+
+    # Extract anomaly rates from past sessions (stored in donnees)
+    past_rates: list[float] = []
+    for s in sessions[-10:]:  # look at last 10 sessions max
+        donnees = s.get("donnees", {})
+        # Try several field names the pipeline may have stored it under
+        rate = (
+            donnees.get("anomaly_rate")
+            or donnees.get("taux_anomalies")
+            or donnees.get("fp_score_session")
+        )
+        if rate is not None:
+            try:
+                past_rates.append(float(rate))
+            except (TypeError, ValueError):
+                pass
+
+    if not past_rates:
+        return result
+
+    previous_rate = past_rates[-1]
+    drift = abs(current_anomaly_rate - previous_rate)
+
+    if drift < 0.05:
+        label = "STABLE"
+        flagged = False
+    elif drift < 0.15:
+        label = "MODERATE"
+        flagged = False
+    else:
+        label = "HIGH"
+        flagged = True
+
+    result.update({
+        "drift_score":           round(drift, 4),
+        "previous_anomaly_rate": round(previous_rate, 4),
+        "drift_label":           label,
+        "drift_flagged":         flagged,
+        "sessions_compared":     len(past_rates),
+    })
+
+    print(
+        f"[A.3] Drift score: {drift:.4f} ({label}) | "
+        f"current={current_anomaly_rate:.4f} prev={previous_rate:.4f}"
+        + (" ⚠️  DRIFT FLAGGED" if flagged else "")
+    )
+    return result

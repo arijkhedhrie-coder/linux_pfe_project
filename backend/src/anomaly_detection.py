@@ -225,13 +225,24 @@ def _score_c2_ml(X_scaled, if_model, lof_model, svm_model):
     # Poids dynamiques
     p = _calculer_poids_dynamiques(X_scaled, if_model, lof_model, svm_model)
 
-    return np.clip(
+    score = np.clip(
         p["if"] * (vote_if * score_if_continu) +
         p["lof"] * vote_lof +
         p["svm"] * vote_svm +
         p["dbscan"] * vote_dbscan,
         0, 1
     )
+
+    # ── A.1: Per-row model agreement ─────────────────────────────────────────
+    # agreement[i] = votes_matching_majority / 4
+    # 4/4 = all models agree  → high confidence flag
+    # 1/4 = only one flagged  → likely noise, treat with caution
+    votes_matrix    = np.stack([vote_if, vote_lof, vote_svm, vote_dbscan], axis=1)
+    votes_sum       = votes_matrix.sum(axis=1)
+    majority        = np.where(votes_sum >= 2, votes_sum, 4 - votes_sum)
+    model_agreement = majority / 4.0
+
+    return score, model_agreement, votes_matrix
 
 
 # ══ COUCHE 3 ══════════════════════════════
@@ -510,7 +521,7 @@ def detecter_anomalies(df, dynamic_config=None):
     s_c1, raisons_c1 = _score_c1_regles(df, features)
 
     print("[C2] Vote 4 modèles ML avec poids dynamiques...")
-    s_c2 = _score_c2_ml(X_scaled, if_model, lof_model, svm_model)
+    s_c2, model_agreement, votes_matrix = _score_c2_ml(X_scaled, if_model, lof_model, svm_model)
 
     print("[C3] Analyse temporelle...")
     s_c3 = _score_c3_temporel(df, features)
@@ -530,19 +541,25 @@ def detecter_anomalies(df, dynamic_config=None):
         0, 1
     )
 
-    df["score_c1"]      = np.round(s_c1, 4)
-    df["score_c2"]      = np.round(s_c2, 4)
-    df["score_c3"]      = np.round(s_c3, 4)
-    df["score_c4"]      = np.round(s_c4, 4)
-    df["score_c5"]      = np.round(s_c5, 4)
-    df["score_final"]   = np.round(score_final, 4)
-    df["explication"]   = explications
-    df["raisons_c1"]    = [" | ".join(r) if r else "RAS" for r in raisons_c1]
-    niveaux             = [_niveau(s) for s in score_final]
-    df["niveau_alerte"] = [n[0] for n in niveaux]
-    df["emoji_alerte"]  = [n[1] for n in niveaux]
-    df["anomalie"]      = np.where(score_final >= 0.3, -1, 1)
-    df["anomalie_score"]= -score_final
+    df["score_c1"]        = np.round(s_c1, 4)
+    df["score_c2"]        = np.round(s_c2, 4)
+    df["score_c3"]        = np.round(s_c3, 4)
+    df["score_c4"]        = np.round(s_c4, 4)
+    df["score_c5"]        = np.round(s_c5, 4)
+    df["score_final"]     = np.round(score_final, 4)
+    df["explication"]     = explications
+    df["raisons_c1"]      = [" | ".join(r) if r else "RAS" for r in raisons_c1]
+    # ── A.1: model agreement stored per row ──────────────────────────────────
+    df["model_agreement"] = np.round(model_agreement, 4)
+    df["votes_if"]        = votes_matrix[:, 0].astype(int)
+    df["votes_lof"]       = votes_matrix[:, 1].astype(int)
+    df["votes_svm"]       = votes_matrix[:, 2].astype(int)
+    df["votes_dbscan"]    = votes_matrix[:, 3].astype(int)
+    niveaux               = [_niveau(s) for s in score_final]
+    df["niveau_alerte"]   = [n[0] for n in niveaux]
+    df["emoji_alerte"]    = [n[1] for n in niveaux]
+    df["anomalie"]        = np.where(score_final >= 0.3, -1, 1)
+    df["anomalie_score"]  = -score_final
 
     n_critique = int((score_final >= 0.7).sum())
     n_anomalie = int(((score_final >= 0.5) & (score_final < 0.7)).sum())
@@ -562,27 +579,53 @@ def detecter_anomalies(df, dynamic_config=None):
 
     df_anomalies = df[df["score_final"] >= 0.3].sort_values("score_final", ascending=False)
 
+    # ── A.1: Session-level model agreement summary ────────────────────────────
+    anomaly_mask = score_final >= 0.3
+    if anomaly_mask.sum() > 0:
+        session_agreement = float(model_agreement[anomaly_mask].mean())
+        isolated_count    = int((model_agreement[anomaly_mask] <= 0.25).sum())  # only 1/4 models
+        print(f"\n[A.1] Model agreement (anomalies only): {session_agreement:.2f} avg | "
+              f"{isolated_count} isolated (1 model only)")
+    else:
+        session_agreement = 1.0
+        isolated_count    = 0
+
     alarmes = []
     for _, row in df_anomalies[df_anomalies["niveau_alerte"].isin(["CRITIQUE", "ANOMALIE"])].iterrows():
         ip = str(row.get("IP_Source", row.get("ip", "N/A")))
+        agree = float(row.get("model_agreement", 1.0))
         alarmes.append({
-            "timestamp":   datetime.now().isoformat(),
-            "ip":          ip,
-            "niveau":      row["niveau_alerte"],
-            "score_final": float(row["score_final"]),
-            "score_c1":    float(row["score_c1"]),
-            "score_c2":    float(row["score_c2"]),
-            "score_c3":    float(row["score_c3"]),
-            "score_c4":    float(row["score_c4"]),
-            "explication": row["explication"],
-            "raisons":     row["raisons_c1"],
-            "severite":    "CRITIQUE" if row["score_final"] >= 0.7 else "AVERTISSEMENT",
-            "message":     f"{row['emoji_alerte']} {row['niveau_alerte']} | IP={ip} | Score={row['score_final']:.2f} | {row['explication']}",
-            "type":        f"DÉTECTION {row['niveau_alerte']}",
-            "valeur":      float(row.get("Nombre_Tentatives", 0)),
-            "seuil":       float(_charger_seuils_adaptatifs().get("Nombre_Tentatives", 50)),
+            "timestamp":       datetime.now().isoformat(),
+            "ip":              ip,
+            "niveau":          row["niveau_alerte"],
+            "score_final":     float(row["score_final"]),
+            "score_c1":        float(row["score_c1"]),
+            "score_c2":        float(row["score_c2"]),
+            "score_c3":        float(row["score_c3"]),
+            "score_c4":        float(row["score_c4"]),
+            "explication":     row["explication"],
+            "raisons":         row["raisons_c1"],
+            "severite":        "CRITIQUE" if row["score_final"] >= 0.7 else "AVERTISSEMENT",
+            "message":         f"{row['emoji_alerte']} {row['niveau_alerte']} | IP={ip} | Score={row['score_final']:.2f} | {row['explication']}",
+            "type":            f"DÉTECTION {row['niveau_alerte']}",
+            "valeur":          float(row.get("Nombre_Tentatives", 0)),
+            "seuil":           float(_charger_seuils_adaptatifs().get("Nombre_Tentatives", 50)),
+            # ── A.1 fields ───────────────────────────────────────────────────
+            "model_agreement": round(agree, 4),
+            "models_agreed":   int(round(agree * 4)),       # 1–4 out of 4
+            "agreement_label": (
+                "HIGH"   if agree >= 0.75 else
+                "MEDIUM" if agree >= 0.50 else
+                "LOW"                                        # only 1 model flagged
+            ),
+            "votes": {
+                "IF":     int(row.get("votes_if",     0)),
+                "LOF":    int(row.get("votes_lof",    0)),
+                "SVM":    int(row.get("votes_svm",    0)),
+                "DBSCAN": int(row.get("votes_dbscan", 0)),
+            },
         })
-        print(f"  🚨 {alarmes[-1]['message']}")
+        print(f"  🚨 {alarmes[-1]['message']} | agreement={agree:.2f} ({alarmes[-1]['agreement_label']})")
 
     ips_critiques = {
         str(row.get("IP_Source", ""))

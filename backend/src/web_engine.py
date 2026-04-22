@@ -143,7 +143,12 @@ def layer3_sensitive_paths(grp: pd.DataFrame) -> float:
         matches = paths.str.startswith(sensitive.lower())
         if matches.any():
             hits += 1
-            if (grp[matches & (grp['status'] == 200)]).shape[0] > 0:
+            # Fix: reindex matches to grp.index before combining with grp boolean mask.
+            # paths is derived from grp['path'].dropna() so its index is a subset of grp.index.
+            # Combining directly causes "Boolean Series key will be reindexed" warning
+            # and can produce wrong results when grp has a non-default index.
+            matches_aligned = matches.reindex(grp.index, fill_value=False)
+            if grp.loc[matches_aligned & (grp['status'] == 200)].shape[0] > 0:
                 found_critical = True
     score = min(80, hits * 8)
     if found_critical:

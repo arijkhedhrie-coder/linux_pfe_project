@@ -4,6 +4,10 @@ venv/
 output/
 backend/output/
 frontend/output/
+.crewai/
+backend/.crewai/
+backend/long_term_memory.json
+backend/python
 .env
 __pycache__/
 *.pyc

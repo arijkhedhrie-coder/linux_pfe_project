@@ -1,6 +1,3 @@
 Service,Nombre_Events,Error_Count,Failure_Rate_%
-apache2_access.log,32419,0.0,0.0
-syslog,31996,183.0,0.57
-kern.log,15616,115.0,0.74
-auth.log,4846,572.0,11.8
-journald,310,0.0,0.0
+apache2_access.log,31322,0.0,0.0
+auth.log,592,571.0,96.45

@@ -25,6 +25,7 @@ import json
 import re
 from datetime import datetime
 from typing import Optional
+from src.crewai_compat import patch_legacy_rag_storage_for_ollama
 
 # ── Imports directs — pas de subprocess ──────────────────────────────────────
 try:
@@ -53,24 +54,13 @@ os.environ.setdefault("OLLAMA_BASE_URL",           "http://localhost:11434")
 os.environ.setdefault("OTEL_SDK_DISABLED",         "true")
 
 # Patch RAGStorage pour forcer Ollama avant initialisation ChromaDB
-try:
-    from crewai.memory.storage.rag_storage import RAGStorage
-    _original_init = RAGStorage.__init__
-
-    def _patched_init(self, *args, **kwargs):
-        kwargs["embedder_config"] = {
-            "provider": "ollama",
-            "config": {
-                "model": "nomic-embed-text",
-                "base_url": "http://localhost:11434"
-            }
-        }
-        _original_init(self, *args, **kwargs)
-
-    RAGStorage.__init__ = _patched_init
+_rag_patch_status, _rag_patch_detail = patch_legacy_rag_storage_for_ollama()
+if _rag_patch_status == "applied":
     print("[OK] Patch RAGStorage Ollama appliqué")
-except Exception as e:
-    print(f"[WARN] Patch RAGStorage échoué: {e}")
+elif _rag_patch_status == "skipped":
+    print(f"[INFO] Patch RAGStorage ignoré: {_rag_patch_detail}")
+else:
+    print(f"[WARN] Patch RAGStorage échoué: {_rag_patch_detail}")
 
 from crewai import Agent, LLM
 from crewai.tools import BaseTool
@@ -108,7 +98,30 @@ llm = LLM(
     model="groq/llama-3.1-8b-instant",
     api_key=GROQ_API_KEY,
     temperature=0.0,
-    max_tokens=150,   # court = économie TPM
+    max_tokens=150,   # default for simple agents (collector, reporter, corrector)
+    max_retries=3,
+    timeout=90,
+)
+
+# Orchestrator needs more tokens: its JSON template alone is ~250 chars.
+# At 150 tokens the LLM truncates mid-JSON and defaults to NORMAL.
+# 400 tokens = enough for the full JSON + one reasoning sentence.
+llm_orchestrator = LLM(
+    model="groq/llama-3.1-8b-instant",
+    api_key=GROQ_API_KEY,
+    temperature=0.0,
+    max_tokens=400,
+    max_retries=3,
+    timeout=90,
+)
+
+# Analyst needs enough space to write 4 lines of structured analysis.
+# 150 tokens cuts off mid-line. 300 is sufficient.
+llm_analyst = LLM(
+    model="groq/llama-3.1-8b-instant",
+    api_key=GROQ_API_KEY,
+    temperature=0.0,
+    max_tokens=300,
     max_retries=3,
     timeout=90,
 )
@@ -852,7 +865,7 @@ analyst_agent = Agent(
         "grâce à une analyse statistique rigoureuse."
     ),
     tools=[outil_analyser],
-    llm=llm,
+    llm=llm_analyst,
     verbose=True,
     max_iter=2,       
     max_retry_limit=1, 
@@ -921,7 +934,7 @@ orchestrator_agent = Agent(
         "Tu réponds DIRECTEMENT sans utiliser d'outil externe."
     ),
     tools=[],   # Aucun outil — évite brave_search sur Groq
-    llm=llm,
+    llm=llm_orchestrator,
     verbose=True
 )
 

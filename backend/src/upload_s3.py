@@ -9,6 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Iterable
 
 from config.config import BUCKET_NAME, AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_KEY
@@ -21,6 +22,18 @@ if not logger.handlers:
     logger.addHandler(h)
 logger.setLevel(logging.INFO)
 
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_OUTPUT_DIR = _BACKEND_ROOT / "output"
+
+
+def _resolve_output_dir(out_dir: str | os.PathLike[str] | None) -> Path:
+    if out_dir is None:
+        return _DEFAULT_OUTPUT_DIR
+    candidate = Path(out_dir)
+    if not candidate.is_absolute():
+        candidate = _BACKEND_ROOT / candidate
+    return candidate
+
 
 @dataclass(frozen=True)
 class UploadResult:
@@ -32,13 +45,20 @@ class UploadResult:
     mbs: float | None = None
 
 
-def sauvegarder_localement(df_clean, erreurs_par_heure, tentatives_par_ip, events_par_service, out_dir: str = "output") -> None:
-    os.makedirs(out_dir, exist_ok=True)
-    df_clean.to_csv(os.path.join(out_dir, "logs_clean.csv"), index=False)
-    erreurs_par_heure.to_csv(os.path.join(out_dir, "erreurs_par_heure.csv"), index=False)
-    tentatives_par_ip.to_csv(os.path.join(out_dir, "tentatives_par_ip.csv"), index=False)
-    events_par_service.to_csv(os.path.join(out_dir, "events_par_service.csv"), index=False)
-    logger.info("Fichiers sauvegardés localement (%s)", out_dir)
+def sauvegarder_localement(
+    df_clean,
+    erreurs_par_heure,
+    tentatives_par_ip,
+    events_par_service,
+    out_dir: str | os.PathLike[str] | None = None,
+) -> None:
+    resolved_out_dir = _resolve_output_dir(out_dir)
+    os.makedirs(resolved_out_dir, exist_ok=True)
+    df_clean.to_csv(resolved_out_dir / "logs_clean.csv", index=False)
+    erreurs_par_heure.to_csv(resolved_out_dir / "erreurs_par_heure.csv", index=False)
+    tentatives_par_ip.to_csv(resolved_out_dir / "tentatives_par_ip.csv", index=False)
+    events_par_service.to_csv(resolved_out_dir / "events_par_service.csv", index=False)
+    logger.info("Fichiers sauvegardés localement (%s)", resolved_out_dir)
 
 
 def _build_s3_client(connect_timeout_s: int, read_timeout_s: int):
@@ -53,6 +73,7 @@ def _build_s3_client(connect_timeout_s: int, read_timeout_s: int):
         read_timeout=read_timeout_s,
         retries={"max_attempts": 3, "mode": "adaptive"},
         max_pool_connections=10,
+        proxies={},
     )
 
     kwargs = {"region_name": AWS_REGION, "config": cfg}
@@ -96,7 +117,7 @@ def _upload_one(s3, local_path: str, bucket: str, key: str, *, retries: int, bac
 
 def uploader_vers_s3(
     *,
-    out_dir: str = "output",
+    out_dir: str | os.PathLike[str] | None = None,
     prefix: str = "processed/",
     include_logs_clean: bool = True,
     parallelism: int = 4,
@@ -116,13 +137,15 @@ def uploader_vers_s3(
         logger.warning("[S3] Upload ignoré: bucket manquant (S3_BUCKET_NAME)")
         return {"status": "SKIPPED", "reason": "bucket_missing", "details": []}
 
+    resolved_out_dir = _resolve_output_dir(out_dir)
+
     files = [
-        (os.path.join(out_dir, "erreurs_par_heure.csv"), f"{prefix}erreurs_par_heure.csv"),
-        (os.path.join(out_dir, "tentatives_par_ip.csv"), f"{prefix}tentatives_par_ip.csv"),
-        (os.path.join(out_dir, "events_par_service.csv"), f"{prefix}events_par_service.csv"),
+        (str(resolved_out_dir / "erreurs_par_heure.csv"), f"{prefix}erreurs_par_heure.csv"),
+        (str(resolved_out_dir / "tentatives_par_ip.csv"), f"{prefix}tentatives_par_ip.csv"),
+        (str(resolved_out_dir / "events_par_service.csv"), f"{prefix}events_par_service.csv"),
     ]
     if include_logs_clean:
-        files.insert(0, (os.path.join(out_dir, "logs_clean.csv"), f"{prefix}logs_clean.csv"))
+        files.insert(0, (str(resolved_out_dir / "logs_clean.csv"), f"{prefix}logs_clean.csv"))
     else:
         logger.info("Upload S3: logs_clean.csv ignorÃ© pour Ã©viter un blocage de fin de pipeline")
     if extra_files:
@@ -174,8 +197,8 @@ def uploader_vers_s3(
         "details": [r.__dict__ for r in results],
     }
 
-    os.makedirs(out_dir, exist_ok=True)
-    report_path = os.path.join(out_dir, "upload_report.json")
+    os.makedirs(resolved_out_dir, exist_ok=True)
+    report_path = resolved_out_dir / "upload_report.json"
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 

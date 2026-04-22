@@ -41,6 +41,7 @@ import boto3
 import pandas as pd
 from botocore.config import Config as BotoConfig
 from dotenv import load_dotenv
+from src.crewai_compat import patch_legacy_rag_storage_for_ollama
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UTF-8 console (Windows)
@@ -102,30 +103,23 @@ try:
 except Exception as e:
     LOG.warning("Patch ChromaDB ignoré: %s: %s", type(e).__name__, e)
 
-try:
-    from crewai.memory.storage.rag_storage import RAGStorage
-
-    _orig_rag_init = RAGStorage.__init__
-
-    def _patched_rag_init(self, *args, **kwargs):
-        kwargs["embedder_config"] = {
-            "provider": "ollama",
-            "config": {"model": "nomic-embed-text", "base_url": "http://localhost:11434"},
-        }
-        return _orig_rag_init(self, *args, **kwargs)
-
-    RAGStorage.__init__ = _patched_rag_init
+_rag_patch_status, _rag_patch_detail = patch_legacy_rag_storage_for_ollama()
+if _rag_patch_status == "applied":
     LOG.info("Patch RAGStorage Ollama appliqué")
-except Exception as e:
-    LOG.warning("Patch RAGStorage ignoré: %s: %s", type(e).__name__, e)
+elif _rag_patch_status == "skipped":
+    LOG.info("Patch RAGStorage ignoré: %s", _rag_patch_detail)
+else:
+    LOG.warning("Patch RAGStorage ignoré: %s", _rag_patch_detail)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Imports métier
 # ─────────────────────────────────────────────────────────────────────────────
-from src.metriques import calculer_metriques, get_summary_for_detector
+from src.metriques import calculer_metriques, get_summary_for_detector, compute_drift_score
 from src.upload_s3 import sauvegarder_localement, uploader_vers_s3
-from src.agents.memory import sauvegarder_memoire, get_contexte_historique
+from src.agents.memory import sauvegarder_memoire, get_contexte_historique, compute_session_stability
 from src.hybrid_config import DynamicConfig
+from src.ip_profiler import dedup_logs, build_ip_profiles, data_quality_label, noise_score_weight
+from src.performance_engine import compute_trust
 
 # Détection: supporte 2 layouts possibles + erreur explicite si tout échoue
 _detect_fn = None
@@ -339,15 +333,30 @@ def _run_safe_corrective_action(
     """
     Valide IP et sévérité avant tout appel au correcteur.
     Évite de bloquer des IPs invalides (multiple, N/A, etc.).
-    """
-    has_critical_alarm = any(
-        isinstance(alarme, dict) and str(alarme.get("severite", "")).upper() == "CRITIQUE"
-        for alarme in (alarmes_final if isinstance(alarmes_final, list) else [])
-    )
 
-    if nb_anomalies > 0 and _is_usable_ip(ip_principale) and has_critical_alarm:
+    Fix: original code only triggered on severite==CRITIQUE but WEB_ATTACK
+    alarms use AVERTISSEMENT. Now triggers on any real alarm when nb_anomalies>0.
+    Only blocks IPs for CRITIQUE severity — lower severity gets WATCHLIST.
+    """
+    alarmes_list = alarmes_final if isinstance(alarmes_final, list) else []
+    real_alarmes = [
+        a for a in alarmes_list
+        if isinstance(a, dict) and a.get("ip", "SYSTEM") != "SYSTEM"
+    ]
+
+    has_critical  = any(str(a.get("severite", "")).upper() == "CRITIQUE"      for a in real_alarmes)
+    has_any_alarm = len(real_alarmes) > 0
+
+    if nb_anomalies > 0 and _is_usable_ip(ip_principale) and has_critical:
+        # CRITIQUE → real block
         return outil_correctif._run(
             anomalie_json=f"BLOCAGE IP {ip_principale} brute-force SSH critique"
+        )
+
+    if nb_anomalies > 0 and _is_usable_ip(ip_principale) and has_any_alarm:
+        # Real alarm but not CRITIQUE → watchlist, not block
+        return outil_correctif._run(
+            anomalie_json=f"WATCHLIST IP {ip_principale} anomalie={nb_anomalies}"
         )
 
     return outil_correctif._run(anomalie_json="SURVEILLANCE NORMALE - aucune action")
@@ -424,6 +433,7 @@ except Exception:
         def pipeline_start(self, **kwargs): LOG.info("pipeline_start %s", kwargs)
         def metrics_computed(self, summary): LOG.info("metrics_computed %s", summary)
         def pass1_complete(self, alarmes, **kwargs): LOG.info("pass1_complete alarms=%s", len(alarmes) if hasattr(alarmes, "__len__") else "n/a")
+        def trust_computed(self, trust): LOG.info("trust_computed conf=%.3f label=%s", trust.get("confidence_in_metrics", 0), trust.get("confidence_label", "?"))
         def pass2_complete(self, alarmes_final, alarmes_pass1, **kwargs): LOG.info("pass2_complete final=%s pass1=%s", len(alarmes_final), len(alarmes_pass1))
         def dynamic_config_default(self): LOG.info("dynamic_config_default")
         def dynamic_config_issued(self, cfg):
@@ -509,6 +519,30 @@ def normalize_logs_df(df: pd.DataFrame) -> pd.DataFrame:
             df["Date"] = pd.Timestamp.now()
     else:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    invalid_dates = int(df["Date"].isna().sum())
+    if invalid_dates:
+        total_rows = len(df)
+        if invalid_dates == total_rows:
+            # Keep all rows even when the source date column is fully unparseable.
+            fallback_end = pd.Timestamp.now().floor("s")
+            df["Date"] = pd.date_range(end=fallback_end, periods=total_rows, freq="s")
+            LOG.warning(
+                "normalize_logs_df: %s/%s dates invalid; replaced with synthetic sequential timestamps to preserve rows",
+                invalid_dates,
+                total_rows,
+            )
+        else:
+            df["Date"] = df["Date"].ffill().bfill()
+            remaining_invalid = int(df["Date"].isna().sum())
+            if remaining_invalid:
+                df["Date"] = df["Date"].fillna(pd.Timestamp.now().floor("s"))
+            LOG.warning(
+                "normalize_logs_df: %s/%s dates invalid; filled from neighboring valid timestamps",
+                invalid_dates,
+                total_rows,
+            )
+
     if "IP_Source" not in df.columns:
         df["IP_Source"] = df.get("source_ip", None)
     if "Service" not in df.columns:
@@ -516,7 +550,7 @@ def normalize_logs_df(df: pd.DataFrame) -> pd.DataFrame:
     if "Message" not in df.columns:
         df["Message"] = df.get("detail", "").astype(str)
     df["Etat"] = df.apply(_map_etat_from_row, axis=1)
-    return df.dropna(subset=["Date"])
+    return df
 
 
 def build_ip_feature_frame(df_logs: pd.DataFrame) -> pd.DataFrame:
@@ -550,6 +584,8 @@ def load_logs_from_s3(prefix: str = "processed/dataset_") -> pd.DataFrame:
         connect_timeout=int(os.getenv("AWS_S3_CONNECT_TIMEOUT", "10")),
         read_timeout=int(os.getenv("AWS_S3_READ_TIMEOUT", "300")),
         max_pool_connections=32,
+        # Ignore broken shell-level proxy values such as 127.0.0.1:9.
+        proxies={},
     )
     s3 = boto3.client(
         "s3",
@@ -693,18 +729,52 @@ def main() -> None:
 
     try:
         LOG.info("PIPELINE START")
-        df = load_logs_from_s3()
+        df_raw = load_logs_from_s3()
+        raw_count = len(df_raw)
+
+        # ── Phase 0.1 + 0.2: Window bucketing + deduplication ────────────────
+        # Collapses duplicate log lines from the same IP within 5-min windows.
+        # Same IP + same message in the window = 1 event (with repeat_count).
+        # Returns noise_ratio: fraction of rows that were repeated noise.
+        df, noise_ratio = dedup_logs(df_raw, window_minutes=5)
+        deduped_count = len(df)
+
+        # ── Phase 0.4: Noise score + ML weight ───────────────────────────────
+        quality_label   = data_quality_label(noise_ratio)
+        ml_score_weight = noise_score_weight(noise_ratio)
+
+        LOG.info(
+            "Data quality: %s | raw=%d → deduped=%d | ml_weight=%.2f",
+            quality_label, raw_count, deduped_count, ml_score_weight,
+        )
 
         log.pipeline_start(
-            row_count=len(df),
+            row_count=raw_count,
             server_count=int(df["Serveur"].nunique()) if "Serveur" in df.columns else 0,
             data_sources=df["Serveur"].unique().tolist() if "Serveur" in df.columns else [],
+            deduped_count=deduped_count,
+            noise_ratio=noise_ratio,
+            data_quality=quality_label,
+            ml_score_weight=ml_score_weight,
         )
 
         # Step 2 — métriques
         erreurs_par_heure, tentatives_par_ip, events_par_service = calculer_metriques(df)
         metrics_summary = get_summary_for_detector(erreurs_par_heure, tentatives_par_ip, df_clean=df)
         log.metrics_computed(metrics_summary)
+
+        # ── A.3: Drift score — how much has anomaly rate shifted vs last session?
+        # ── A.4: Stability — are alarm counts / FP rates / anomaly rates consistent?
+        # Both results are merged INTO metrics_summary so they flow to:
+        #   agents (via agent_inputs), JSONL (via log.metrics_computed fields),
+        #   and the trust score engine in Phase B.
+        drift_info     = compute_drift_score(metrics_summary.get("taux_anomalies", 0.0))
+        stability_info = compute_session_stability(n_sessions=3)
+        metrics_summary["drift_score"]   = drift_info["drift_score"]
+        metrics_summary["drift_label"]   = drift_info["drift_label"]
+        metrics_summary["drift_flagged"] = drift_info["drift_flagged"]
+        metrics_summary["stability"]     = stability_info["confidence"]
+        metrics_summary["stability_signals"] = stability_info["stable_signals"]
 
         # Forecast best-effort
         try:
@@ -713,11 +783,50 @@ def main() -> None:
         except Exception as e:
             log.warning("forecast", f"skipped: {type(e).__name__}: {e}")
 
+        # ── Phase 0.3: Per-IP behavior profiles ──────────────────────────────
+        # Build a behavioral fingerprint per IP BEFORE ML runs.
+        # Fields: first_seen, last_seen, total_events, burst_windows,
+        #         services_hit, error_rate, night_ratio, repeat_ratio.
+        # Stored as session-level dict — ml_engine_bridge uses it to enrich alarms.
+        ip_profiles = build_ip_profiles(df)
+        LOG.info("[PROFILES] Built %d IP profiles", len(ip_profiles))
+
+        # Attach to ip_profiler module so bridge/anomaly_detection can read it
+        import src.ip_profiler as _ip_profiler_mod
+        _ip_profiler_mod._current_session_profiles = ip_profiles
+        _ip_profiler_mod._current_ml_score_weight  = ml_score_weight
+
         # Step 3 — PASS 1
         LOG.info("PASS 1 — default thresholds")
         df_ip = build_ip_feature_frame(df)
-        df_annot, anomalies, alarmes_pass1, threshold_snapshots = _call_detecter_anomalies(df_ip, dynamic_config=None)
+
+        # ── BUG FIX: ml_engine_bridge expects RAW logs (it runs normalize internally).
+        # anomaly_detection expects the per-IP aggregated frame (df_ip).
+        # _call_detecter_anomalies detects which module is active and passes the right df.
+        _detection_input = df if _detect_fn.__module__.endswith("ml_engine_bridge") else df_ip
+        df_annot, anomalies, alarmes_pass1, threshold_snapshots = _call_detecter_anomalies(_detection_input, dynamic_config=None)
         log.pass1_complete(alarmes_pass1, threshold_snapshot=threshold_snapshots[0] if threshold_snapshots else None)
+
+        # ── Phase B: Trust score — runs right after Pass 1 ───────────────────
+        # Uses A.1 (model_agreement), A.2 (fp_rate), A.3 (drift), A.4 (stability)
+        # + Phase 0 noise fields. All inputs are already in metrics_summary and
+        # threshold_snapshots at this point — no extra computation needed.
+        _trust_session_data = {
+            **metrics_summary,
+            "noise_ratio":     noise_ratio,
+            "ml_score_weight": ml_score_weight,
+        }
+        trust_result = compute_trust(
+            session_data        = _trust_session_data,
+            alarmes             = alarmes_pass1,
+            threshold_snapshots = threshold_snapshots,
+        )
+        log.trust_computed(trust_result)
+
+        # Step 2: make trust score available to the bridge gate
+        # Bridge reads this in _ab_gate() to decide whether to accept Pass 2
+        _ip_profiler_mod._current_trust_score = trust_result.get("confidence_in_metrics", 0.5)
+        _ip_profiler_mod._current_trust_label = trust_result.get("confidence_label", "UNCERTAIN")
 
         # Step 4 — agent inputs
         sources_str = ",".join(df["Serveur"].unique().tolist()) if "Serveur" in df.columns else "unknown"
@@ -742,7 +851,7 @@ def main() -> None:
         # Step 6 — PASS 2
         if not dynamic_config.is_default():
             LOG.info("PASS 2 — agent-adjusted thresholds")
-            df_annot, anomalies, alarmes_final, threshold_snapshots = _call_detecter_anomalies(df_ip, dynamic_config=dynamic_config)
+            df_annot, anomalies, alarmes_final, threshold_snapshots = _call_detecter_anomalies(_detection_input, dynamic_config=dynamic_config)
             log.pass2_complete(alarmes_final, alarmes_pass1, threshold_snapshot=threshold_snapshots[-1] if threshold_snapshots else None)
             pass2_ran = True
         else:
@@ -884,6 +993,18 @@ def main() -> None:
             "date": agent_inputs.get("date"),
             "alarmes": alarmes_final,
             "resultat_agents": str(resultat)[:500],
+            # ── Layer 3 fix: persist self-evaluation metrics so stability check works ──
+            # compute_session_stability() reads these from donnees across sessions
+            "fp_score_session":  trust_result.get("false_positive_rate", 0.0),
+            "anomaly_rate":      trust_result.get("noise_ratio", 0.0),
+            "taux_anomalies":    round(
+                (len(anomalies) / max(len(df_ip), 1))
+                if isinstance(anomalies, pd.DataFrame) else 0.0, 4
+            ),
+            "model_agreement":   trust_result.get("model_agreement", 1.0),
+            "drift_score":       trust_result.get("drift_score", 0.0),
+            "stability":         trust_result.get("stability", "LOW"),
+            "confidence_in_metrics": trust_result.get("confidence_in_metrics", 0.0),
         })
 
         LOG.info("MEMORY ctx=%s", get_contexte_historique())
@@ -907,5 +1028,25 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
-    os._exit(0)
+    import argparse
+    parser = argparse.ArgumentParser(description="IDPS Pipeline")
+    parser.add_argument(
+        "--backtest",
+        action="store_true",
+        help="Run backtest on past sessions (read-only, no alarms, no S3 upload).",
+    )
+    parser.add_argument(
+        "--sessions",
+        type=int,
+        default=3,
+        help="Number of past sessions to backtest (default: 3).",
+    )
+    args = parser.parse_args()
+
+    if args.backtest:
+        from src.backtester import main_backtest
+        main_backtest(n_sessions=args.sessions)
+        os._exit(0)
+    else:
+        main()
+        os._exit(0)

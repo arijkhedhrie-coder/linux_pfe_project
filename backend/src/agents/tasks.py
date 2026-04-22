@@ -34,23 +34,25 @@ from src.agents.agents import (
 # ════════════════════════════════════════════════════════════════════════════
 tache_dynamic_config = Task(
     description=(
-        "IDPS orchestrator. Pass 1 done. Decide if Pass 2 needs changes.\n"
-        "STATS: anomalies={nb_anomalies} top_ip={ip_principale} "
-        "chains={chain_incidents} corr={corr_incidents}\n"
-        "ALARMS: {alarmes_resumees}\n"
-        "METRICS: health={health_score}% status={alert_status} "
-        "pattern={attack_pattern} "
-        "entropy={ip_entropy} ips={unique_attacking_ips} "
-        "velocity={attack_velocity} "
-        "spike={is_velocity_spike} night={night_ratio}\n"
-        "HISTORY: {historical_context}\n\n"
-        "RULES (only when clearly needed):\n"
-        "- ssh_high_risk_threshold=28 if health<50 AND spike=True\n"
-        "- ftp_high_risk_threshold=40 if WEB alarms but no FTP\n"
-        "- escalate_ips=[ip] if ip just below BLOCK threshold\n"
-        "- rerun_engines=[\"session\"] if SSH alarms but no SESSION\n"
-        "- Leave ALL null if nothing needs adjustment\n\n"
-        'Respond with ONLY this JSON (no other text):\n'
+        "IDPS orchestrator. Pass 1 done. Output JSON only.\n"
+        "STATS: anomalies={nb_anomalies} ip={ip_principale} "
+        "spike={is_velocity_spike} velocity={attack_velocity} "
+        "pattern={attack_pattern} ips={unique_attacking_ips} "
+        "health={health_score}% night={night_ratio}\n"
+        "ALARMS: {alarmes_resumees}\n\n"
+        "APPLY FIRST MATCHING RULE:\n"
+        "R1: anomalies>0,spike=True,velocity>200 "
+        "→ ssh_high=25,threat=CRITICAL\n"
+        "R2: anomalies>0,pattern=concentrated_attacker,ips<=5 "
+        "→ ssh_high=28,escalate=[{ip_principale}],threat=ELEVATED\n"
+        "R3: anomalies>0,health<50,spike=True "
+        "→ ssh_high=28,threat=ELEVATED\n"
+        "R4: anomalies>0,night>0.5 "
+        "→ rerun=[session],threat=ELEVATED\n"
+        "R5: anomalies=0,spike=True,velocity>300 "
+        "→ ssh_high=20,threat=ELEVATED\n"
+        "R6: else → all null,threat=NORMAL\n\n"
+        'OUTPUT THIS JSON AND NOTHING ELSE:\n'
         '{"ssh_high_risk_threshold":null,"ssh_med_risk_threshold":null,'
         '"web_high_risk_threshold":null,"ftp_high_risk_threshold":null,'
         '"ftp_med_risk_threshold":null,"kernel_high_risk_threshold":null,'
@@ -58,7 +60,7 @@ tache_dynamic_config = Task(
         '"rerun_engines":[],"threat_level":"NORMAL",'
         '"reasoning":"one sentence","confidence":0.9}'
     ),
-    expected_output="JSON only. Threshold fields are floats or null.",
+    expected_output="JSON only. No prose before or after.",
     agent=orchestrator_agent,
 )
 
@@ -100,11 +102,18 @@ tache_analyse = Task(
         "  night_ratio={night_ratio}\n"
         "  alarms={alarmes_resumees}\n"
         "  pass2_ran={pass2_ran}  agent_config={dynamic_config_summary}\n\n"
+        "DECISION RULES — apply these exactly, do not guess:\n"
+        "  AUTOMATED if: velocity>100 OR (unique_ips<=5 AND entropy<1.0)\n"
+        "  HUMAN if: velocity<20 AND unique_ips>10 AND entropy>2.0\n"
+        "  MIXED otherwise\n"
+        "  CRITICAL pattern if: spike=True AND velocity>200\n"
+        "  CONCENTRATED if: unique_ips<=5 AND entropy<1.5\n"
+        "  DISTRIBUTED if: unique_ips>20 OR entropy>3.0\n\n"
         "Write EXACTLY 4 lines, no headers, no bullet points:\n"
-        "1. Main threat type and confidence level\n"
-        "2. Automated or human-driven attack? What is the evidence?\n"
-        "3. Did Pass 2 run and change detection vs Pass 1? (yes/no + reason)\n"
-        "4. Top 2 risks in the next 2 hours"
+        "1. Main threat: state pattern name and whether CRITICAL/HIGH/NORMAL\n"
+        "2. Attack origin: state AUTOMATED/HUMAN/MIXED and cite the exact metric values that decided it\n"
+        "3. Pass 2: state yes/no and what changed, or 'did not run'\n"
+        "4. Next 2h risks: name the top 2 specific risks based on the pattern"
     ),
     expected_output="Exactly 4 lines of analysis. No tool calls.",
     agent=analyst_agent,

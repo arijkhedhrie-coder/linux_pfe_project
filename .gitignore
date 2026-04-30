@@ -13,6 +13,7 @@ __pycache__/
 backend/data/logs/
 # Raw data
 backend/data/raw/
+
 # Models
 backend/src/models/
 # Additional cache
